@@ -2,7 +2,7 @@
 
 %% Gets the full path for the current file and changes directory
 if caller == "gui"
-    dataLocation = testSettings.dataLocation;
+    dataLocation = testSettings.dataLocation + "\";
 else
     currFilePath = mfilename('fullpath');
     % Seperates the path directory and the filename

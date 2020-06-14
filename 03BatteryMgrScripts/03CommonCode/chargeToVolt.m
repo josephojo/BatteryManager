@@ -224,6 +224,10 @@ try
         save(dataLocation + "007BatteryParam.mat", 'batteryParam');
     end
     
+    if ~isempty(testSettings.saveName)
+        save(testSettings.saveDir + "\" + testSettings.saveName + ".mat", 'battTS');
+    end
+    
     if plotFigs == true
         currVals = ones(1, length(battTS.Time)) * curr;
         plotBattData(battTS, 'noCore');
