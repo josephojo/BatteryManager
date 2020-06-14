@@ -5,9 +5,23 @@ if strcmpi(caller, "gui")
     %ARRAY ELOAD
     %##########################################################################
     if exist('eloadArgs', 'var')
-        if ~isempty(eloadArgs)
-            eload = Array_ELoad();
-            
+        if ~isempty(eloadArgs) && strcmpi(eloadArgs.type, "serial")
+            if ~exist('eload','var') ...
+                    || (isvalid(eload) && strcmpi(eload.serialStatus(), "Disconnected"))
+                if strcmpi(eloadArgs.devName, "array")
+                    eload = Array_ELoad(eloadArgs.COMPort, "baudRate", eloadArgs.baudRate);
+                    eload.stopBits = eloadArgs.stopBits;
+                    eload.byteOrder = eloadArgs.byteOrder;
+                    eload.terminator = eloadArgs.terminator;
+                    eload.timeout = eloadArgs.timeout;
+                    eload.SetSystCtrl('remote');
+                    eload.Disconnect();
+                end
+            end
+        else
+            err.code = ErrorCode.BAD_DEV_ARG;
+            err.msg = "No connection type selected for the E-Load.";
+            send(errorQ, err);
         end
     end
     
@@ -15,33 +29,48 @@ if strcmpi(caller, "gui")
     %APM POWER SUPPLY
     %##########################################################################
     if exist('psuArgs', 'var')
-        if ~isempty(psuArgs)
-            psu = APM_PSU(psuArgs.COMPort, "baudRate", psuArgs.baudRate);
-            psu.stopBits = psuArgs.stopBits;
-            psu.byteOrder = psuArgs.byteOrder;
-            psu.terminator = psuArgs.terminator;
-            psu.timeout = psuArgs.timeout;
+        if ~isempty(psuArgs) && strcmpi(psuArgs.type, "serial")
+            if ~exist('psu','var') ...
+                    || (isvalid(eload) && strcmpi(psu.serialStatus(), "Disconnected"))
+                if strcmpi(psuArgs.devName, "array")
+                    psu = APM_PSU(psuArgs.COMPort, "baudRate", psuArgs.baudRate);
+                    psu.stopBits    = psuArgs.stopBits;
+                    psu.byteOrder   = psuArgs.byteOrder;
+                    psu.terminator  = psuArgs.terminator;
+                    psu.timeout     = psuArgs.timeout;
+                    psu.setSystCtrl('remote');
+                    psu.disconnect();
+                end
+            end
+        else
+            err.code = ErrorCode.BAD_DEV_ARG;
+            err.msg = "No connection type selected for the PSU.";
+            send(errorQ, err);
         end
     end
     %--------------------------------------------------------------------------
     
     %THERMOCOUPLE MODULE
     %##########################################################################
-    if exist('thermoArgs', 'var')
-        if ~isempty(thermoArgs)
-            if thermoArgs.type == "modbus"
-                thermo = modbus('serialrtu',thermoArgs.COMPort,...
+    if exist('tempModArgs', 'var')
+        if ~isempty(tempModArgs)
+            if tempModArgs.type == "modbus"
+                thermo = modbus('serialrtu',tempModArgs.COMPort,...
                     'Timeout',thermoArgs.timeout); % Initializes a Modbus
                 %protocol object using serial RTU interface connecting to COM6 and a Time
                 %out of 10s.
-                thermo.BaudRate = thermoArgs.baudRate;
+                thermo.BaudRate = tempModArgs.baudRate;
                 
-            elseif thermoArgs.type == "serial"
-                thermo = serialport(thermoArgs.COMPort, thermoArgs.baudRate);
-                thermo.StopBits = thermoArgs.stopBits;
-                thermo.ByteOrder = thermoArgs.byteOrder;
-                thermo.Terminator = thermoArgs.terminator;
-                thermo.Timeout = thermoArgs.timeout;
+            elseif tempModArgs.type == "serial"
+                thermo = serialport(tempModArgs.COMPort, tempModArgs.baudRate);
+                thermo.StopBits = tempModArgs.stopBits;
+                thermo.ByteOrder = tempModArgs.byteOrder;
+                thermo.Terminator = tempModArgs.terminator;
+                thermo.Timeout = tempModArgs.timeout;
+            else
+                err.code = ErrorCode.BAD_DEV_ARG;
+                err.msg = "No connection type selected for the Temp. Module.";
+                send(errorQ, err);
             end
         end
     end
@@ -49,25 +78,55 @@ if strcmpi(caller, "gui")
     
     % LABJACK
     %##########################################################################
-    LJRelayPins = [5, 6];
-    if ~exist('ljasm','var')
-        ljasm = NET.addAssembly('LJUDDotNet');
-        ljudObj = LabJack.LabJackUD.LJUD;
+    LJRelayPins = sysMCUArgs.relayPins;
+    
+    if strcmpi(sysMCUArgs.devName, "LJMCU")
+        if ~exist('ljasm','var')
+            ljasm = NET.addAssembly('LJUDDotNet');
+            ljudObj = LabJack.LabJackUD.LJUD;
+
+            % Open the first found LabJack U3.
+            [ljerror, ljhandle] = ljudObj.OpenLabJackS('LJ_dtU3', 'LJ_ctUSB', '0', ...
+                true, 0);
+
+            % Constant values used in the loop.
+            LJ_ioGET_AIN = ljudObj.StringToConstant('LJ_ioGET_AIN');
+            LJ_ioGET_AIN_DIFF = ljudObj.StringToConstant('LJ_ioGET_AIN_DIFF');
+            LJE_NO_MORE_DATA_AVAILABLE = ljudObj.StringToConstant('LJE_NO_MORE_DATA_AVAILABLE');
+
+            % Start by using the pin_configuration_reset IOType so that all pin
+            % assignments are in the factory default condition.
+            ljudObj.ePutS(ljhandle, 'LJ_ioPIN_CONFIGURATION_RESET', 0, 0, 0);
+            
+            % Enable measurement pins as analog pins
+            ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', sysMCUArgs.currMeasPins(1), 1, 0);
+            ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', sysMCUArgs.currMeasPins(2), 1, 0);
+            ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', sysMCUArgs.voltMeasPins(1), 1, 0);
+            ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', sysMCUArgs.voltMeasPins(2), 1, 0);
+        end
+    elseif strcmpi(sysMCUArgs.devName, "ArdMCU")
+            err.code = ErrorCode.FEATURE_UNAVAIL;
+            err.msg = "Using the arduino relay for switching and measurements has not yet been implemented.";
+            send(errorQ, err);
         
-        % Open the first found LabJack U3.
-        [ljerror, ljhandle] = ljudObj.OpenLabJackS('LJ_dtU3', 'LJ_ctUSB', '0', ...
-            true, 0);
-        
-        % Constant values used in the loop.
-        LJ_ioGET_AIN = ljudObj.StringToConstant('LJ_ioGET_AIN');
-        LJ_ioGET_AIN_DIFF = ljudObj.StringToConstant('LJ_ioGET_AIN_DIFF');
-        LJE_NO_MORE_DATA_AVAILABLE = ljudObj.StringToConstant('LJE_NO_MORE_DATA_AVAILABLE');
-        
-        % Start by using the pin_configuration_reset IOType so that all pin
-        % assignments are in the factory default condition.
-        ljudObj.ePutS(ljhandle, 'LJ_ioPIN_CONFIGURATION_RESET', 0, 0, 0);
-        ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', 7, 1, 0);
-        
+        % Arduino
+        %##########################################################################
+%         ardPort = 'COM8';
+%         ardSerial = instrfind('Port',ardPort, 'Status', 'open');
+%         if isempty(ardSerial)
+%             ard = serial(ardPort);
+%             ard.BaudRate = 115200;
+%             ard.DataBits = 8;
+%             ard.Parity = 'none';
+%             ard.StopBits = 1;
+%             ard.Terminator = 'LF';
+%             fopen(ard);
+%         elseif ~exist('ard','var')
+%             ard = ardSerial;
+%         end
+%         wait(2);
+        % -------------------------------------------------------------------------
+    
     end
     
 elseif strcmpi(caller, "cmdWindow")

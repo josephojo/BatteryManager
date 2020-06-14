@@ -18,10 +18,30 @@ end
 % Capture Time
 tElasped = toc(testTimer) - timerPrev(1);
 
-coreInd = [];
 
-if numThermo ~= 0
-    %{
+% Default action for when the command window is the caller and testSetting
+% is empty
+if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "data2Record")
+    testSettings.data2Record = ["volt", "curr", "SOC", "Cap", "Temp"];
+end
+if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "voltMeasDev")
+    testSettings.voltMeasDev = "mcu";
+end
+if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "currMeasDev")
+    testSettings.currMeasDev = "powerDev";
+end
+if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "tempMeasDev")
+    testSettings.tempMeasDev = "Mod16Ch";
+end
+
+
+
+
+% Temperature Measurement for the stack. Each temp measurement is indicated
+% by the channel numbers they are connected to
+if ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.ambTMeasDev, "Mod16Ch")
+    if ~isempty(tempChnls)
+        %{
 % if useArd4Temp == 1
 %     % Use only the TC data (Hot_Junc) from Arduino
 % %     numCh = 1;
@@ -30,25 +50,23 @@ if numThermo ~= 0
 %     data = fgetl(ard);
 %     thermoData(2) = str2double(string(data(1:end-1)));
 % else
-    %}
-    %Measure Data from thermometer. Using holdingregs function (03), read data
-    %from 3 registers starting at register 9
-    % thermoData = read(thermo,'holdingregs',9,3);
-    %     numCh = 2;
-    thermoData = read(thermo,'holdingregs',firstTCchnl,numThermo);
-    for i = 1:numThermo
-        thermoData(i) = thermoData(i)/10;
+        %}
+        
+        readChnls = min(tempChnls) : max(tempChnls);
+        readCount = length(readChnls);
+        %Measure Data from thermometer. Using holdingregs function (03), read data
+        %from 3 registers starting at register 9
+        % thermoData = read(thermo,'holdingregs',9,3);
+        %     numCh = 2;
+        thermoData = read(thermo,'holdingregs',min(tempChnls), readCount);
+        thermoData = thermoData(ismember(readChnls, tempChnls))/10;
+        
     end
-    % Index of TC connections starting from "firstTCchnl"
-    ambInd = [1];
-    surfInd = [2];
-    coreInd = [];
     
-    ambTemp = thermoData(ambInd);
-    cells.surfTemp(cellIDs) = thermoData(surfInd);
-    if ~isempty(coreInd)
-        cells.coreTemp(cellIDs) = thermoData(coreInd);
-    end
+elseif ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.ambTMeasDev, "ardMod")
+    err.code = ErrorCode.FEATURE_UNAVAIL;
+    err.msg = "Using the arduino for temperature measurements has not yet been implemented.";
+    send(errorQ, err);
 end
 
 
@@ -65,97 +83,153 @@ end
 % thermoData(1) = 0; thermoData(2) = 0; thermoData(3) = 0;
 %}
 
-script_avgLJMeas;
+% Voltage Measurement for the stack. Each cell is so far made to equal that of the stack
+if ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDev, "mcu")
+    script_avgLJMeas;
+    
+    % %Finds avg of total voltages collected at batt terminals and current sensor
+    vBattp = voltPos / adcAvgCount;
+    vBattn = voltNeg / adcAvgCount;
+    battVolt = round(vBattp - vBattn + 0.01, 3);
+    
+    adcAvgCounter = 0; voltPos = []; voltNeg = [];
+    
+    % Get cell measurements if available
+    if strcmpi(cellConfig, 'series')
+        % Implementation coming soon.
+    else
+        cells.volt(cellIDs) = battVolt; % Assign stack voltage to individual voltage
+    end
+    
+elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "powerDev")
+    % Use Voltage Data from either PSU or ELOAD for Battery current
+    if strcmpi(battState, "discharging")
+        battVolt = eload.MeasureVolt();
+    elseif strcmpi(battState, "charging")
+        battVolt = psu.measureVolt();
+    elseif strcmpi(battState, "idle")
+        battVolt = eload.MeasureVolt();
+    end
+    
+    % Get cell measurements if available
+    if strcmpi(cellConfig, 'series')
+        % Implementation coming soon.
+    else
+        cells.volt(cellIDs) = battVolt; % Assign stack voltage to individual voltage
+    end
+    
+end
 
-% %Finds avg of total voltages collected at batt terminals and current sensor
-vBattp = ain2 / adcAvgCount;
-vBattn = ain3 / adcAvgCount;
-if strcmp(cellConfig, 'single') ~= true
-    cSigP1 = ain0 / adcAvgCount; % First Current Sensor (+ve term volt meas)
-    cSigN1 = ain7 / adcAvgCount; % First Current Sensor (-ve term volt meas)
+
+% Current Measurement for the stack. Each cell is so far made to equal that of the stack
+if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "mcu")  % if strcmp(cellConfig, 'single') ~= true
+    if isempty(currPos) % No need to re-run the script isit has already ran during voltage measurement
+        script_avgLJMeas;
+    end
+    cSigP1 = currPos / adcAvgCount; % First Current Sensor (+ve term volt meas)
+    cSigN1 = currNeg / adcAvgCount; % First Current Sensor (-ve term volt meas)
     cSigP_N1 = round(cSigP1 - cSigN1, 4); %4,'significant')+0.00;
+    
+    %{
     cSigP2 = ain1 / adcAvgCount; % Second Current Sensor (+ve term volt meas)
     cSigN2 = ain7 / adcAvgCount; % Second Current Sensor (-ve term volt meas)
     cSigP_N2 = round(cSigP2 - cSigN2, 4); %4,'significant')+0.00;
-end
-
-adcAvgCounter = 0; ain0 = 0; ain1 = 0; ain2 = 0; ain3 = 0;  ain7 = 0;
-
-% Use Current Data from either PSU or ELOAD for Battery current
-if strcmpi(battState, "discharging")
-    battCurr = -eload.MeasureCurr();
-elseif strcmpi(battState, "charging")
-    battCurr = psu.measureCurr();
-elseif strcmpi(battState, "idle")
-    battCurr = 0.0;
-end
-
-battVolt = round(vBattp - vBattn + 0.01, 3);
-% Get cell measurements if available
-if strcmpi(cellConfig, 'series')
-    % Implementation coming soon.
-else
-    cells.volt(cellIDs) = battVolt; % Assign stack voltage to individual voltage
-end
-
-if strcmpi(battState, "idle")
-    cells.curr(cellIDs) = 0;
-else
-    if strcmp(cellConfig, 'single') ~= true
-        cells.curr(cellIDs) = [(cSigP_N1 - 2.4902)/0.1, (cSigP_N2 - 2.5132)/0.1]; % Sensor Sensitivity = 100mV/A
+    cells.curr(cellIDs) = [(cSigP_N1 - 2.4902)/0.1, (cSigP_N2 - 2.5132)/0.1]; % Sensor Sensitivity = 100mV/A
+    %}
+    
+    adcAvgCounter = 0; currPos = []; currNeg = []; % ain1 = 0;
+    
+    battCurr = (cSigP_N1 - 2.4902)/0.1;
+    
+    if strcmpi(battState, "idle")
+        battCurr = 0.0;
+    end
+    % Get cell measurements if available
+    if strcmpi(cellConfig, 'parallel')
+        % Implementation coming soon.
     else
-        cells.curr(cellIDs) = battCurr;
+        cells.curr(cellIDs) = battCurr; % Assign stack current to individual current
+    end
+    
+
+elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "powerDev") 
+    % Use Current Data from either PSU or ELOAD for Battery current
+    if strcmpi(battState, "discharging")
+        battCurr = -eload.MeasureCurr();
+    elseif strcmpi(battState, "charging")
+        battCurr = psu.measureCurr();
+    elseif strcmpi(battState, "idle")
+        battCurr = 0.0;
+    end
+    
+    % Get cell measurements if available
+    if strcmpi(cellConfig, 'parallel')
+        % Implementation coming soon.
+    else
+        cells.curr(cellIDs) = battCurr; % Assign stack current to individual current
     end
 end
 
-tempT = toc(testTimer);
-deltaT = tempT - timerPrev(4);
-timerPrev(4) = tempT; % Update Current time to previous
-cells.AhCap(cellIDs) = cells.AhCap(cellIDs) + (abs(cells.curr(cellIDs)) * (deltaT/3600));
-AhCap = AhCap + (abs(battCurr) * (deltaT/3600));
 
-cells.SOC(cellIDs) = estimateSOC(cells.curr(cellIDs),...
-    deltaT, cells.prevSOC(cellIDs), 'Q', cells.coulomb(cellIDs)); % Leave right after cell curr update since it is used in SOC estimation
-battSOC = estimateSOC(battCurr, deltaT, prevSOC, 'Q', coulombs); % Leave right after battCurr update since it is used in SOC estimation
 
-cells.prevSOC(cellIDs) = cells.SOC(cellIDs); % Update the current cell SOC as prev
-prevSOC = battSOC; % Update the current SOC as prev
+% SOC and AhCap Estimation for the stack. Each cell is so far made to equal that of the stack
+if ismember("SOC", testSettings.data2Record)
+    tmpT = toc(testTimer);
+    deltaT = tmpT - timerPrev(4);
+    timerPrev(4) = tmpT; % Update Current time to previous
+    
+    if ismember("Cap", testSettings.data2Record)
+        cells.AhCap(cellIDs) = cells.AhCap(cellIDs) + (abs(cells.curr(cellIDs)) * (deltaT/3600));
+        AhCap = AhCap + (abs(battCurr) * (deltaT/3600));
+    end
+    cells.SOC(cellIDs) = estimateSOC(cells.curr(cellIDs),...
+        deltaT, cells.prevSOC(cellIDs), 'Q', cells.coulomb(cellIDs)); % Leave right after cell curr update since it is used in SOC estimation
+    battSOC = estimateSOC(battCurr, deltaT, prevSOC, 'Q', coulombs); % Leave right after battCurr update since it is used in SOC estimation
+    
+    cells.prevSOC(cellIDs) = cells.SOC(cellIDs); % Update the current cell SOC as prev
+    prevSOC = battSOC; % Update the current SOC as prev
+    
+    % Store the SOC of the pack in for both cells in the stack
+    batteryParam.soc(cellIDs) = cells.SOC(cellIDs);
+    
+end
 
-% Store the SOC of the pack in for both cells in the stack
-batteryParam.soc(cellIDs) = cells.SOC(cellIDs); 
-
+% data = [battVolt, battCurr, battSOC, AhCap,...
+%             cells.curr(cellIDs)', cells.SOC(cellIDs)',cells.AhCap(cellIDs)',...
+%             ambTemp, cells.surfTemp(cellIDs)', ...
+%             cells.coreTemp(cellIDs)'];
 
 data = [battVolt, battCurr, battSOC, AhCap,...
             cells.curr(cellIDs)', cells.SOC(cellIDs)',cells.AhCap(cellIDs)',...
-            ambTemp, cells.surfTemp(cellIDs)', ...
-            cells.coreTemp(cellIDs)'];
+            tempChnls(:)', thermoData(:)'];
+
 
 
 battTS = addsample(battTS,'Data',data,'Time',tElasped);
 
 if caller == "gui"
-    battData.Data = data;
-    battData.Time = tElasped;
+    battData.data = data;
+    battData.time = tElasped;
     send(dataQ, battData);
-end
-
-if verbose == 0
-%     if tElasped - timerPrev(5) >= 1. % 2.2
-%         disp(tElasped - timerPrev(5))
-%         timerPrev(5) = tElasped;
+else
+    
+    if verbose == 0
+        %     if tElasped - timerPrev(5) >= 1. % 2.2
+        %         disp(tElasped - timerPrev(5))
+        %         timerPrev(5) = tElasped;
         fprintf(".")
         dotCounter = dotCounter + 1;
         if dotCounter >= 60
             disp(newline)
             disp(num2str(tElasped,'%.2f') + " seconds");
-%             Tstr = sprintf("TC 1 = %.1f ºC\t\t\tTC 2 = %.2f ºC" ,thermoData(1), thermoData(2)); % \t\t\tTC 3 = %.1f ºC
-%             Tstr = "";
-%             for i = 1:numThermo
-%                 Tstr = Tstr + sprintf("TC " + num2str(i) + " = %.2f ºC\t\t\t" ,thermoData(i));
-%                 if mod(i, 2) == 0 && i ~= numThermo
-%                    Tstr = Tstr + newline; 
-%                 end
-%             end
+            %             Tstr = sprintf("TC 1 = %.1f ºC\t\t\tTC 2 = %.2f ºC" ,thermoData(1), thermoData(2)); % \t\t\tTC 3 = %.1f ºC
+            %             Tstr = "";
+            %             for i = 1:numThermo
+            %                 Tstr = Tstr + sprintf("TC " + num2str(i) + " = %.2f ºC\t\t\t" ,thermoData(i));
+            %                 if mod(i, 2) == 0 && i ~= numThermo
+            %                    Tstr = Tstr + newline;
+            %                 end
+            %             end
             Tstr = "";
             Bstr = "";
             for cellID = cellIDs
@@ -171,7 +245,7 @@ if verbose == 0
                 Bstr = Bstr + newline;
                 Tstr = Tstr + newline;
             end
-
+            
             Bstr = Bstr + sprintf("\nBatt Volt = %.4f V\tBatt Curr = %.4f A\n" + ...
                 "Batt SOC = %.2f \t\tBatt AH = %.3f\n\n", battVolt, battCurr,...
                 battSOC*100, AhCap);
@@ -179,37 +253,38 @@ if verbose == 0
             fprintf(Bstr);
             dotCounter = 0;
         end
-%     end
-elseif verbose == 1
-    disp(num2str(tElasped,'%.2f') + " seconds");
-%             Tstr = sprintf("TC 1 = %.1f ºC\t\t\tTC 2 = %.2f ºC" ,thermoData(1), thermoData(2)); % \t\t\tTC 3 = %.1f ºC
-%             Tstr = "";
-%             for i = 1:numThermo
-%                 Tstr = Tstr + sprintf("TC " + num2str(i) + " = %.2f ºC\t\t\t" ,thermoData(i));
-%                 if mod(i, 2) == 0 && i ~= numThermo
-%                    Tstr = Tstr + newline; 
-%                 end
-%             end
-    Tstr = "";
-    Bstr = "";
-    for cellID = cellIDs
-        Tstr = Tstr + sprintf("Ta " + cellID + " = %.2f ºC\t\t", ambTemp);
-        Tstr = Tstr + sprintf("Ts " + cellID + " = %.2f ºC\t\t", cells.surfTemp(cellID));
-        if isempty(coreInd)
-            Tstr = Tstr + sprintf("Tc " + cellID + " = %.2f ºC\t", cells.coreTemp(cellID));
+        %     end
+    elseif verbose == 1
+        disp(num2str(tElasped,'%.2f') + " seconds");
+        %             Tstr = sprintf("TC 1 = %.1f ºC\t\t\tTC 2 = %.2f ºC" ,thermoData(1), thermoData(2)); % \t\t\tTC 3 = %.1f ºC
+        %             Tstr = "";
+        %             for i = 1:numThermo
+        %                 Tstr = Tstr + sprintf("TC " + num2str(i) + " = %.2f ºC\t\t\t" ,thermoData(i));
+        %                 if mod(i, 2) == 0 && i ~= numThermo
+        %                    Tstr = Tstr + newline;
+        %                 end
+        %             end
+        Tstr = "";
+        Bstr = "";
+        for cellID = cellIDs
+            Tstr = Tstr + sprintf("Ta " + cellID + " = %.2f ºC\t\t", ambTemp);
+            Tstr = Tstr + sprintf("Ts " + cellID + " = %.2f ºC\t\t", cells.surfTemp(cellID));
+            if isempty(coreInd)
+                Tstr = Tstr + sprintf("Tc " + cellID + " = %.2f ºC\t", cells.coreTemp(cellID));
+            end
+            
+            Bstr = Bstr + sprintf("Curr " + cellID + " = %.2f A\t\t", cells.curr(cellID));
+            Bstr = Bstr + sprintf("SOC " + cellID + " = %.2f \t\t", cells.SOC(cellID)*100);
+            Bstr = Bstr + sprintf("Ah " + cellID + " = %.3f Ah\t", cells.AhCap(cellID));
+            Bstr = Bstr + newline;
+            Tstr = Tstr + newline;
         end
         
-        Bstr = Bstr + sprintf("Curr " + cellID + " = %.2f A\t\t", cells.curr(cellID));
-        Bstr = Bstr + sprintf("SOC " + cellID + " = %.2f \t\t", cells.SOC(cellID)*100);
-        Bstr = Bstr + sprintf("Ah " + cellID + " = %.3f Ah\t", cells.AhCap(cellID));
-        Bstr = Bstr + newline;
-        Tstr = Tstr + newline;
-    end
+        Bstr = Bstr + sprintf("\nBatt Volt = %.4f V\tBatt Curr = %.4f A\n" + ...
+            "Batt SOC = %.2f \t\tBatt AH = %.3f\n\n", battVolt, battCurr,...
+            battSOC*100, AhCap);
         
-    Bstr = Bstr + sprintf("\nBatt Volt = %.4f V\tBatt Curr = %.4f A\n" + ...
-        "Batt SOC = %.2f \t\tBatt AH = %.3f\n\n", battVolt, battCurr,...
-        battSOC*100, AhCap);
-    
-    fprintf(Tstr + newline);
-    fprintf(Bstr);
+        fprintf(Tstr + newline);
+        fprintf(Bstr);
+    end
 end

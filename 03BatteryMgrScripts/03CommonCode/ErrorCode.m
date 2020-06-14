@@ -16,9 +16,11 @@ classdef ErrorCode
     enumeration
         % General Errors
         NO_ERROR 
+        WARNING
         UNKNOWN_ERROR 
         EXCEPTION
         EMERGENCY_STOP
+        FEATURE_UNAVAIL     % Feature requested has not yet been implemented
         
         % COMM ErrorCodes
         COMMPORT_NOTFOUND
@@ -45,6 +47,10 @@ classdef ErrorCode
         LTC3300_CRC                 % An LTC3300 response had an incorrect CRC.
         LTC6804_ADC_CLEAR           % An LTC6804 ADC conversion returned clear, indicating that the command to start the conversion was not received.
         LTC3300_FAILED_CMD_WRITE    % An LTC3300 Balancer Command Read did not match the last value written.
+        
+        % Power Device ErrorCodes
+        BAD_DEV_ARG                 % The arguments meant to initlize the device objects are either invalid or nonexistent
+        BAD_SETTING                 % One of the test setting arguments are invalid.
         
     end
 end

@@ -1,9 +1,9 @@
-function battTS = chargeToVolt(targVolt, chargeCurr, varargin)
-%chargeToVolt Charges to the specified Voltage based on the charge current
+function battTS = chargeToSOC(targSOC, chargeCurr, varargin)
+%chargeToSOC Charges to the specified SOC based on the charge current
 %specified
 %
 %   Inputs: 
-%       targVolt            : Target Voltage (V) to charge for
+%       targSOC            : Target time to charge for
 %      	chargeCurr          : Current (A) to charge
 %       varargin   
 %			trig1         	= false,  		: Accepts a Command to use the trigger activate something such as a heat pad
@@ -134,7 +134,7 @@ end
 try
     script_initializeDevices; % Initialized devices like Eload, PSU etc.
     script_initializeVariables; % Run Script to initialize common variables
-    curr = abs(chargeCurr); %2.5A is 1C for the ANR26650
+    curr = chargeCurr; %2.5A is 1C for the ANR26650
     
 %     testTimer = tic; % Start Timer for read period
     
@@ -142,76 +142,114 @@ try
     script_failSafes; %Run FailSafe Checks
     script_charge; % Run Script to begin/update charging process
     
-    
-    % While the battery voltage is less than the limit (cc mode)
-    while battVolt <= targVolt
-        %% Measurements
-        % Querys all measurements every readPeriod second(s)
-        if toc(testTimer) - timerPrev(3) >= readPeriod
-            timerPrev(3) = toc(testTimer);
-            
-            % Trigger1 (GPIO from LabJack)
-            if trigAvail == true
-                % The trigger is activated on trig1StartTime
-                % and switches OFF trig1EndTime
-
-                %{
-                 if tElasped >= triggers.startTimes(trig_Ind) && ...
-                        tElasped < triggers.startTimes(trig_Ind) + trigTimeTol && ...
-                        trig_On(trig_Ind) == false
-                %}
-                trig_Ind = tElasped >= triggers.startTimes & ...
-                    tElasped < triggers.startTimes + trigTimeTol;
-                if max(trig_On(trig_Ind) == false)
-                    disp("Trigger ON - " + num2str(timerPrev(3))+ newline)
-                    if strcmpi(caller, "gui")
-                        err.code = ErrorCode.WARNING;
-                        err.msg = "Trigger ON - " + num2str(timerPrev(3))+ newline;
-                        send(errorQ, err);
-                    end
-                    pinVal = ~(true & triggers.inverts(trig_Ind)); % Flips the pinVal if invert is true
-                    % Make sure the heating pad is ON
-                    ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', triggers.pins(trig_Ind), pinVal, 0, 0);
-                    ljudObj.GoOne(ljhandle);
-                    trig_On(trig_Ind) = true;
-%                             trig_Ind = trig_Ind + 1;
+    if targSOC == 1
+        % While the battery voltage is less than the limit (our 100% SOC) (CC mode)
+        while battVolt <= highVoltLimit
+            %% Measurements
+            % Querys all measurements every readPeriod second(s)
+            if toc(testTimer) - timerPrev(3) >= readPeriod
+                timerPrev(3) = toc(testTimer);
+                script_queryData; % Run Script to query data from devices
+                script_failSafes; %Run FailSafe Checks
+                % if limits are reached, break loop
+                if errorCode == 1
+                    break;
                 end
-
-                %{
-                if tElasped >= triggers.endTimes(trig_Ind) && ...
-                        tElasped < triggers.endTimes(trig_Ind) + trigTimeTol && ...
-                        trig_On(trig_Ind) == true
-                %}
-                trig_Ind = tElasped >= triggers.endTimes & ...
-                        tElasped < triggers.endTimes + trigTimeTol;
-                if max(trig_On(trig_Ind) == true)
-                    disp("Trigger OFF - " + num2str(timerPrev(3))+ newline)
-                    if strcmpi(caller, "gui")
-                        err.code = ErrorCode.WARNING;
-                        err.msg = "Trigger OFF - " + num2str(timerPrev(3))+ newline;
-                        send(errorQ, err);
-                    end
-                    pinVal = ~(false & triggers.inverts(trig_Ind)); % Flips the pinVal if invert is true
-                    % Make sure the heating pad is OFF
-                    ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', triggers.pins(trig_Ind), pinVal, 0, 0);
-                    ljudObj.GoOne(ljhandle);
-                    trig_On(trig_Ind) = false;
+            end
+        end
+        %% CV Mode
+        % While the battery voltage is less than the limit (our 100% SOC) (CC mode)
+        while battCurr >= cvMinCurr
+            %% Measurements
+            % Querys all measurements every readPeriod second(s)
+            if toc(testTimer) - timerPrev(3) >= readPeriod
+                timerPrev(3) = toc(testTimer);
+                script_queryData; % Run Script to query data from devices
+                script_failSafes; %Run FailSafe Checks
+                % if limits are reached, break loop
+                if errorCode == 1
+                    break;
+                end
+            end
+        end
+        batteryParam.soc(cellIDs) = 1; % 100% Charged
+    else
+        % While the current SOC is less than the specified soc
+        while battSOC < targSOC
+            %% CCCV, Measurements and FailSafes
+            if battVolt <= highVoltLimit || battCurr >= cvMinCurr
+                %% Measurements
+                % Querys all measurements every readPeriod second(s)
+                if toc(testTimer) - timerPrev(3) >= readPeriod
+                    timerPrev(3) = toc(testTimer);
+                    
+                    % Trigger1 (GPIO from LabJack)
+                    if trigAvail == true
+                        % The trigger is activated on trig1StartTime
+                        % and switches OFF trig1EndTime
+                        
+                        %{
+                         if tElasped >= triggers.startTimes(trig_Ind) && ...
+                                tElasped < triggers.startTimes(trig_Ind) + trigTimeTol && ...
+                                trig_On(trig_Ind) == false
+                        %}
+                        trig_Ind = tElasped >= triggers.startTimes & ...
+                            tElasped < triggers.startTimes + trigTimeTol;
+                        if max(trig_On(trig_Ind) == false)
+                            disp("Trigger ON - " + num2str(timerPrev(3))+ newline)
+                            if strcmpi(caller, "gui")
+                                err.code = ErrorCode.WARNING;
+                                err.msg = "Trigger ON - " + num2str(timerPrev(3))+ newline;
+                                send(errorQ, err);
+                            end
+                            pinVal = ~(true & triggers.inverts(trig_Ind)); % Flips the pinVal if invert is true
+                            % Make sure the heating pad is ON
+                            ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', triggers.pins(trig_Ind), pinVal, 0, 0);
+                            ljudObj.GoOne(ljhandle);
+                            trig_On(trig_Ind) = true;
+%                             trig_Ind = trig_Ind + 1;
+                        end
+                        
+                        %{
+                        if tElasped >= triggers.endTimes(trig_Ind) && ...
+                                tElasped < triggers.endTimes(trig_Ind) + trigTimeTol && ...
+                                trig_On(trig_Ind) == true
+                        %}
+                        trig_Ind = tElasped >= triggers.endTimes & ...
+                                tElasped < triggers.endTimes + trigTimeTol;
+                        if max(trig_On(trig_Ind) == true)
+                            disp("Trigger OFF - " + num2str(timerPrev(3))+ newline)
+                            if strcmpi(caller, "gui")
+                                err.code = ErrorCode.WARNING;
+                                err.msg = "Trigger OFF - " + num2str(timerPrev(3))+ newline;
+                                send(errorQ, err);
+                            end
+                            pinVal = ~(false & triggers.inverts(trig_Ind)); % Flips the pinVal if invert is true
+                            % Make sure the heating pad is OFF
+                            ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', triggers.pins(trig_Ind), pinVal, 0, 0);
+                            ljudObj.GoOne(ljhandle);
+                            trig_On(trig_Ind) = false;
 %                             if length(trigStartTimes) > 1 && trig_Ind ~= length(trigStartTimes)
 %                                 trig_Ind = trig_Ind + 1;
 %                             end
+                        end
+                    end
+                    
+                    script_queryData; % Run Script to query data from devices
+                    script_failSafes; %Run FailSafe Checks
+                    % if limits are reached, break loop
+                    if errorCode == 1
+                        break;
+                    end
                 end
-            end
-            
-            script_queryData; % Run Script to query data from devices
-            script_failSafes; %Run FailSafe Checks
-            % if limits are reached, break loop
-            if errorCode == 1
-                script_idle;
+            else
+                batteryParam.soc(cellIDs) = 1; % 100% Charged
                 break;
             end
         end
     end
-   
+    
+
     
     % Save data
     if tElasped > 5 % errorCode == 0 &&
@@ -229,7 +267,6 @@ try
         plotBattData(battTS, 'noCore');
     end
     
-    
 catch MEX
     script_resetDevices;
     if caller == "cmdWindow"
@@ -238,7 +275,6 @@ catch MEX
         send(errorQ, MEX)
     end
 end
-
 %% Teardown
 script_resetDevices;
 

@@ -9,21 +9,31 @@ while adcAvgCounter < adcAvgCount
     % Request a single-ended reading from AIN4 (VShunt+).
 %     ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN_DIFF', 0, 0, 1, 0); %4, 0,5, 0);
 
-    % Request a single-ended reading from AIN0 (C1+). first current sense
-    ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN', 0, 0, 0, 0);
+%     % Request a single-ended reading from AIN0 (C1+). first current sense
+%     ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN', 0, 0, 0, 0);
+%     
+%     % Request a single-ended reading from AIN7 (C2+). second current sense
+%     ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN', 1, 0, 0, 0);
+%     
+%     % Request a single-ended reading from AIN1 (C-).
+%     ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN', 7, 0, 0, 0);
+
+    if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "mcu") 
+        % Request a single-ended reading from AIN0 (C1+). first current sense
+        ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN', currPinPos, 0, 0, 0);
+
+        % Request a single-ended reading from AIN1 (C-).
+        ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN', currPinNeg, 0, 0, 0);
+    end
     
-    % Request a single-ended reading from AIN7 (C2+). second current sense
-    ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN', 1, 0, 0, 0);
+    if ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDev, "mcu") 
+        % Request a single-ended reading from AIN2 (VBatt+).
+        ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN', voltPinPos, 0, 0, 0);
+
+        % Request a single-ended reading from AIN3 (VBatt-).
+        ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN', voltPinNeg, 0, 0, 0);
+    end
     
-    % Request a single-ended reading from AIN1 (C-).
-    ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN', 7, 0, 0, 0);
-    
-    % Request a single-ended reading from AIN2 (VBatt+).
-    ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN', 2, 0, 0, 0);
-    
-    % Request a single-ended reading from AIN3 (VBatt-).
-    ljudObj.AddRequestS(ljhandle, 'LJ_ioGET_AIN', 3, 0, 0, 0);
-    %
     % Execute the requests.
     ljudObj.GoOne(ljhandle);
     
@@ -34,21 +44,22 @@ while adcAvgCounter < adcAvgCount
         switch ioType
             case LJ_ioGET_AIN
                 switch int32(channel)
-                    case 0
-                        ain0 = ain0 + dblValue;
+                    case currPinPos
+                        currPos = currPos + dblValue;
+                    case currPinNeg
+                        currNeg = currNeg + dblValue;
                     case 1
                         ain1 = ain1 + dblValue;
-                    case 2
-                        ain2 = ain2 + dblValue;
-                    case 3
-                        ain3 = ain3 + dblValue;
-                    case 7
-                        ain7 = ain7 + dblValue;
+                    case voltPinPos
+                        voltPos = voltPos + dblValue;
+                    case voltPinNeg
+                        voltNeg = voltNeg + dblValue;
+                    
                 end
             case LJ_ioGET_AIN_DIFF
                 switch int32(channel)
                     case 0
-                        ain0 = ain0 + dblValue;
+                        currPos = currPos + dblValue;
                     case 1
                         ain1 = ain1 + dblValue;
                 end

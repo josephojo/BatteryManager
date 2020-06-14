@@ -5,46 +5,46 @@
 %     end
 % end
 
-if caller == "gui"
+% if caller == "gui"
 %% Caller == GUI
-    
-    if exist('psu','var')
-        if isvalid(psu)
-            psu.disconnect();
-            psu.SerialObj = [];
-            clear('psu');
-        end
-    end
-    
-    
-    if exist('eload','var')
-        if isvalid(eload)
-            eload.Disconnect();
-            eload.SerialObj = [];
-            clear('eload');
-        end
-    end
-    
-    if exist('ljasm','var')
-        relayState = false;
-        if (isempty(ljasm) == 0)
-            script_switchRelays;
-            ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', 4, 0, 0, 0);
-            ljudObj.GoOne(ljhandle);
-            ljudObj.Close();
-            clear('ljudObj', 'ljasm');
-        end
-    end
-    
-    
-    if exist('thermo','var')
-        clear ('thermo');
-    end
-
-    disp("Devices Reset" + newline);
-
-    
-else
+%     
+%     if exist('psu','var')
+%         if isvalid(psu)
+%             psu.disconnect();
+%             psu.SerialObj = [];
+%             clear('psu');
+%         end
+%     end
+%     
+%     
+%     if exist('eload','var')
+%         if isvalid(eload)
+%             eload.Disconnect();
+%             eload.SerialObj = [];
+%             clear('eload');
+%         end
+%     end
+%     
+%     if exist('ljasm','var')
+%         relayState = false;
+%         if (isempty(ljasm) == 0)
+%             script_switchRelays;
+%             ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', 4, 0, 0, 0);
+%             ljudObj.GoOne(ljhandle);
+%             ljudObj.Close();
+%             clear('ljudObj', 'ljasm');
+%         end
+%     end
+%     
+%     
+%     if exist('thermo','var')
+%         clear ('thermo');
+%     end
+% 
+%     disp("Devices Reset" + newline);
+% 
+%     
+% else
 %% Caller == Command Window
 
 if exist('psu','var')
@@ -108,4 +108,4 @@ end
 
 disp("Devices Reset" + newline);
 
-end
+% end
