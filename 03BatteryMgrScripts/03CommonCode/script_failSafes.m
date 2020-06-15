@@ -1,27 +1,28 @@
 % Checks to see if limits are reached
 for cellID = cellIDs
-    if cells.coreTemp(cellID) > battCoreTempLimit
-        error = sprintf("Core TEMP for " + cellID + " has Exceeded Limit:  %.2f ",...
-            cells.coreTemp(cellID));
-        warning(error);
-        clear('thermo');
-        save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-        script_resetDevices
-        waitTS = waitTillTemp('core','cellIDs', cellID, 'temp', 35);
-        battTS = appendBattTS2TS(battTS, waitTS);
-        script_initializeDevices;
-        %     errorCode = 1;
-    elseif cells.surfTemp(cellID) > batteryParam.maxSurfTemp(cellID)
-        error = sprintf("Surface TEMP for " + cellID + " has Exceeded Limit:  %.2f ", cells.surfTemp(cellID));
-        warning(error);
-        clear('thermo');
-        save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-        script_resetDevices;
-        waitTS = waitTillTemp('surf','cellIDs', cellID, 'temp', 35);
-        battTS = appendBattTS2TS(battTS, waitTS);
-        script_initializeDevices;
-        %     errorCode = 1;
-    elseif cells.volt(cellID) <= batteryParam.minVolt(cellID)
+%     if cells.coreTemp(cellID) > battCoreTempLimit
+%         error = sprintf("Core TEMP for " + cellID + " has Exceeded Limit:  %.2f ",...
+%             cells.coreTemp(cellID));
+%         warning(error);
+%         clear('thermo');
+%         save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+%         script_resetDevices
+%         waitTS = waitTillTemp('core','cellIDs', cellID, 'temp', 35);
+%         battTS = appendBattTS2TS(battTS, waitTS);
+%         script_initializeDevices;
+%         %     errorCode = 1;
+%     elseif cells.surfTemp(cellID) > batteryParam.maxSurfTemp(cellID)
+%         error = sprintf("Surface TEMP for " + cellID + " has Exceeded Limit:  %.2f ", cells.surfTemp(cellID));
+%         warning(error);
+%         clear('thermo');
+%         save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+%         script_resetDevices;
+%         waitTS = waitTillTemp('surf','cellIDs', cellID, 'temp', 35);
+%         battTS = appendBattTS2TS(battTS, waitTS);
+%         script_initializeDevices;
+%         %     errorCode = 1;
+%     else
+    if cells.volt(cellID) <= batteryParam.minVolt(cellID)
         script_queryData;
         if cells.volt(cellID) <= batteryParam.minVolt(cellID)
             error = sprintf("Battery VOLTAGE for " + cellID + " is Less than Limit: %.2f V", cells.volt(cellID));

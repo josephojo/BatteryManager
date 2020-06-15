@@ -1,4 +1,5 @@
 
+% try
 if strcmpi(caller, "gui")
 %% Caller == GUI
     
@@ -32,7 +33,7 @@ if strcmpi(caller, "gui")
         if strcmpi(psuArgs.type, "serial")
             if ~exist('psu','var') ...
                     || (isvalid(eload) && strcmpi(psu.serialStatus(), "Disconnected"))
-                if strcmpi(psuArgs.devName, "array")
+                if strcmpi(psuArgs.devName, "apm")
                     psu = APM_PSU(psuArgs.COMPort, "baudRate", psuArgs.baudRate);
                     psu.stopBits    = psuArgs.stopBits;
                     psu.byteOrder   = psuArgs.byteOrder;
@@ -55,7 +56,7 @@ if strcmpi(caller, "gui")
     if exist('tempModArgs', 'var') && ~isempty(tempModArgs)
         if tempModArgs.type == "modbus"
             thermo = modbus('serialrtu',tempModArgs.COMPort,...
-                'Timeout',thermoArgs.timeout); % Initializes a Modbus
+                'Timeout',tempModArgs.timeout); % Initializes a Modbus
             %protocol object using serial RTU interface connecting to COM6 and a Time
             %out of 10s.
             thermo.BaudRate = tempModArgs.baudRate;
@@ -64,7 +65,7 @@ if strcmpi(caller, "gui")
             thermo = serialport(tempModArgs.COMPort, tempModArgs.baudRate);
             thermo.StopBits = tempModArgs.stopBits;
             thermo.ByteOrder = tempModArgs.byteOrder;
-            thermo.Terminator = tempModArgs.terminator;
+            configureTerminator(thermo, tempModArgs.terminator);
             thermo.Timeout = tempModArgs.timeout;
         else
             err.code = ErrorCode.BAD_DEV_ARG;
@@ -93,15 +94,19 @@ if strcmpi(caller, "gui")
                 LJ_ioGET_AIN_DIFF = ljudObj.StringToConstant('LJ_ioGET_AIN_DIFF');
                 LJE_NO_MORE_DATA_AVAILABLE = ljudObj.StringToConstant('LJE_NO_MORE_DATA_AVAILABLE');
                 
-                % Start by using the pin_configuration_reset IOType so that all pin
-                % assignments are in the factory default condition.
-                ljudObj.ePutS(ljhandle, 'LJ_ioPIN_CONFIGURATION_RESET', 0, 0, 0);
+%                 % Start by using the pin_configuration_reset IOType so that all pin
+%                 % assignments are in the factory default condition.
+%                 ljudObj.ePutS(ljhandle, 'LJ_ioPIN_CONFIGURATION_RESET', 0, 0, 0);
                 
                 % Enable measurement pins as analog pins
-                ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', sysMCUArgs.currMeasPins(1), 1, 0);
-                ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', sysMCUArgs.currMeasPins(2), 1, 0);
-                ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', sysMCUArgs.voltMeasPins(1), 1, 0);
-                ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', sysMCUArgs.voltMeasPins(2), 1, 0);
+                if isfield(sysMCUArgs, 'currMeasPins')
+                    ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', sysMCUArgs.currMeasPins(1), 1, 0);
+                    ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', sysMCUArgs.currMeasPins(2), 1, 0);
+                end
+                if isfield(sysMCUArgs, 'voltMeasPins')
+                    ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', sysMCUArgs.voltMeasPins(1), 1, 0);
+                    ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', sysMCUArgs.voltMeasPins(2), 1, 0);
+                end
             end
         elseif strcmpi(sysMCUArgs.devName, "ArdMCU")
             err.code = ErrorCode.FEATURE_UNAVAIL;
@@ -203,7 +208,7 @@ elseif strcmpi(caller, "cmdWindow")
         
         % Start by using the pin_configuration_reset IOType so that all pin
         % assignments are in the factory default condition.
-        ljudObj.ePutS(ljhandle, 'LJ_ioPIN_CONFIGURATION_RESET', 0, 0, 0);
+%         ljudObj.ePutS(ljhandle, 'LJ_ioPIN_CONFIGURATION_RESET', 0, 0, 0);
         ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', 7, 1, 0);
         
     end
@@ -227,3 +232,7 @@ elseif strcmpi(caller, "cmdWindow")
     % script_initializeVariables;
     
 end
+
+% catch MEX
+%     
+% end

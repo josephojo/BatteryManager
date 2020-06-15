@@ -5,6 +5,8 @@
 %     end
 % end
 
+try
+
 % if caller == "gui"
 %% Caller == GUI
 %     
@@ -94,8 +96,9 @@ if exist('ljasm','var')
     relayState = false;
     if (isempty(ljasm) == 0)
         script_switchRelays;
-        ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', 4, 0, 0, 0); % Turn off Trigger Pin
-        ljudObj.GoOne(ljhandle);
+%         ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', 4, 0, 0, 0); % Turn off Trigger Pin
+%         ljudObj.GoOne(ljhandle); #Comeback - Need to make sure pins are
+                                    %         switched of regardless of pin polarity/inversion
         ljudObj.Close();
         clear('ljudObj', 'ljasm');
     end
@@ -108,4 +111,7 @@ end
 
 disp("Devices Reset" + newline);
 
+catch MEX
+    send(errorQ, MEX);
+end
 % end

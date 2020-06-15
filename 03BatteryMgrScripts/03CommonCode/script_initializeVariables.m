@@ -222,7 +222,7 @@ if ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDe
         voltPinPos = 2;
         voltPinNeg = 3;
     end
-    voltNeg = []; voltPos = []; adcAvgCounter = 0; 
+    voltNeg = 0; voltPos = 0; adcAvgCounter = 0; 
     adcAvgCount = 10; %20;
 
 end

@@ -43,18 +43,23 @@ while adcAvgCounter < adcAvgCount
     while finished == false
         switch ioType
             case LJ_ioGET_AIN
-                switch int32(channel)
-                    case currPinPos
-                        currPos = currPos + dblValue;
-                    case currPinNeg
-                        currNeg = currNeg + dblValue;
-                    case 1
-                        ain1 = ain1 + dblValue;
-                    case voltPinPos
-                        voltPos = voltPos + dblValue;
-                    case voltPinNeg
-                        voltNeg = voltNeg + dblValue;
-                    
+                if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "mcu")
+                    switch int32(channel)
+                        case currPinPos
+                            currPos = currPos + dblValue;
+                        case currPinNeg
+                            currNeg = currNeg + dblValue;
+                    end
+                end
+    %                     case 1
+    %                         ain1 = ain1 + dblValue;
+                if ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDev, "mcu")
+                    switch int32(channel)
+                        case voltPinPos
+                            voltPos = voltPos + dblValue;
+                        case voltPinNeg
+                            voltNeg = voltNeg + dblValue;
+                    end
                 end
             case LJ_ioGET_AIN_DIFF
                 switch int32(channel)

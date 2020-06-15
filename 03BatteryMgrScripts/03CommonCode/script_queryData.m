@@ -39,7 +39,7 @@ end
 
 % Temperature Measurement for the stack. Each temp measurement is indicated
 % by the channel numbers they are connected to
-if ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.ambTMeasDev, "Mod16Ch")
+if ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.tempMeasDev, "Mod16Ch")
     if ~isempty(tempChnls)
         %{
 % if useArd4Temp == 1
@@ -63,7 +63,7 @@ if ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.ambTMeasDe
         
     end
     
-elseif ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.ambTMeasDev, "ardMod")
+elseif ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.tempMeasDev, "ardMod")
     err.code = ErrorCode.FEATURE_UNAVAIL;
     err.msg = "Using the arduino for temperature measurements has not yet been implemented.";
     send(errorQ, err);
@@ -92,7 +92,7 @@ if ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDe
     vBattn = voltNeg / adcAvgCount;
     battVolt = round(vBattp - vBattn + 0.01, 3);
     
-    adcAvgCounter = 0; voltPos = []; voltNeg = [];
+    adcAvgCounter = 0; voltPos = 0; voltNeg = 0;
     
     % Get cell measurements if available
     if strcmpi(cellConfig, 'series')
@@ -101,7 +101,7 @@ if ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDe
         cells.volt(cellIDs) = battVolt; % Assign stack voltage to individual voltage
     end
     
-elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "powerDev")
+elseif ismember("volt", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "powerDev")
     % Use Voltage Data from either PSU or ELOAD for Battery current
     if strcmpi(battState, "discharging")
         battVolt = eload.MeasureVolt();
@@ -123,7 +123,8 @@ end
 
 % Current Measurement for the stack. Each cell is so far made to equal that of the stack
 if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "mcu")  % if strcmp(cellConfig, 'single') ~= true
-    if isempty(currPos) % No need to re-run the script isit has already ran during voltage measurement
+    % No need to re-run the script if it has already been run during voltage measurement
+    if ~ismember("volt", testSettings.data2Record) || ~strcmpi(testSettings.voltMeasDev, "mcu") 
         script_avgLJMeas;
     end
     cSigP1 = currPos / adcAvgCount; % First Current Sensor (+ve term volt meas)
@@ -137,7 +138,7 @@ if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDe
     cells.curr(cellIDs) = [(cSigP_N1 - 2.4902)/0.1, (cSigP_N2 - 2.5132)/0.1]; % Sensor Sensitivity = 100mV/A
     %}
     
-    adcAvgCounter = 0; currPos = []; currNeg = []; % ain1 = 0;
+    adcAvgCounter = 0; currPos = 0; currNeg = 0; % ain1 = 0;
     
     battCurr = (cSigP_N1 - 2.4902)/0.1;
     
