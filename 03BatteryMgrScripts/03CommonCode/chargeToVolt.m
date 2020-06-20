@@ -24,6 +24,8 @@ function battTS = chargeToVolt(targVolt, chargeCurr, varargin)
 %                                               2 parallel-run programs such as the function and GUI
 %			errorQ        	= [],     		: Pollable DataQueue for real-time error data (exceptions) 
 %                                               transfer between 2 parallel-run programs such as the function and GUI
+%			randQ        	= [],     		: Pollable DataQueue for miscellaneous data (e.g confirmations etc) 
+%                                               transfer between 2 parallel-run programs such as the function and GUI
 %			testSettings  	= []);    		: Settings for the test such as cell configuration, sample time, data to capture etc
 
 
@@ -46,6 +48,7 @@ param = struct(...
     'stackArgs',        [],     ... %           "
     'dataQ',            [],     ... %           "
     'errorQ',           [],     ... %           "
+    'randQ',            [],     ... %           "
     'testSettings',     []);        % -------------------------
 
 
@@ -83,6 +86,7 @@ sysMCUArgs = param.sysMCUArgs;
 stackArgs = param.stackArgs;
 dataQ = param.dataQ;
 errorQ = param.errorQ;
+randQ = param.randQ;
 testSettings = param.testSettings;
 
 if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
@@ -204,8 +208,9 @@ try
             
             script_queryData; % Run Script to query data from devices
             script_failSafes; %Run FailSafe Checks
+            script_checkGUICmd; % Check to see if there are any commands from GUI
             % if limits are reached, break loop
-            if errorCode == 1
+            if errorCode == 1 || strcmpi(testStatus, "stop")
                 script_idle;
                 break;
             end

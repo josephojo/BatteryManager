@@ -1,4 +1,12 @@
-% testTimer = tic; % Initialize the timer to be used for the current test
+
+% Send the command Queue object back to the caller so that commands such as
+% "stop" and "pause" can be sent to the program as it runs
+if strcmpi(caller, "gui")
+   cmdQ = parallel.pool.PollableDataQueue; 
+   if ~isempty(randQ)
+       send(randQ, cmdQ);
+   end
+end
 
 %% Gets the full path for the current file and changes directory
 if caller == "gui"
@@ -313,3 +321,5 @@ end
 
 battTS = timeseries();
 battData = struct;
+
+testStatus = "running";
