@@ -109,9 +109,15 @@ if exist('thermo','var')
     clear ('thermo');
 end
 
-disp("Devices Reset" + newline);
-
+msg = "Devices Reset" + newline;
+if strcmpi(caller, "gui")
+    send(randQ, msg);
+else
+    disp(msg);
+end
 catch MEX
-    send(errorQ, MEX);
+    if strcmpi(caller, "gui")
+        send(errorQ, MEX);
+    end
 end
 % end

@@ -20,11 +20,14 @@ function battTS = dischargeTo(targSOC, dischargeCurr, varargin)
 %                                               2 parallel-run programs such as the function and GUI
 %			errorQ        	= [],     		: Pollable DataQueue for real-time error data (exceptions) 
 %                                               transfer between 2 parallel-run programs such as the function and GUI
+%			randQ        	= [],     		: Pollable DataQueue for miscellaneous data (e.g confirmations etc) 
+%                                               transfer between 2 parallel-run programs such as the function and GUI
 %			testSettings  	= []);    		: Settings for the test such as cell configuration, sample time, data to capture etc
 
 
 
 %% Setup Code
+
 param = struct(...
     'trig1',            false,  ... % General to most functions
     'trig1_pin',        4,      ... %           "
@@ -35,10 +38,14 @@ param = struct(...
     'caller',      "cmdWindow", ... %           "
     'psuArgs',          [],     ... %           "
     'eloadArgs',        [],     ... %           "
-    'thermoArgs',       [],     ... %           "
-    'daqArgs',          [],     ... %           "
+    'tempModArgs',      [],     ... %           "
+    'balArgs',          [],     ... %           "
+    'sysMCUArgs',       [],     ... %           "
+    'saveArgs',         [],     ... %           "
+    'stackArgs',        [],     ... %           "
     'dataQ',            [],     ... %           "
     'errorQ',           [],     ... %           "
+    'randQ',            [],     ... %           "
     'testSettings',     []);        % -------------------------
 
 
@@ -70,21 +77,59 @@ cellIDs = param.cellIDs;
 caller = param.caller;
 psuArgs = param.psuArgs;
 eloadArgs = param.eloadArgs;
-thermoArgs = param.thermoArgs;
-daqArgs = param.daqArgs;
+tempModArgs = param.tempModArgs;
+balArgs = param.balArgs;
+sysMCUArgs = param.sysMCUArgs;
+stackArgs = param.stackArgs;
 dataQ = param.dataQ;
 errorQ = param.errorQ;
+randQ = param.randQ;
 testSettings = param.testSettings;
 
-
-trig1_On = false;
-trig1_Ind = 1; % Index for iterating over the start times specified for trig1
-
-if param.trig1 == true
-    trig1StartTime = param.trig1_startTime;
-    trig1EndTime = param.trig1_startTime + param.trig1_duration;
-    trig1TimeTol = 0.5; % Half a second
+if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
+        && param.trig1 == true  
+    testSettings.trigPins = param.trig1_pin;
+    testSettings.trigStartTimes = {param.trig1_startTime};
+    testSettings.trigStartTimes = {param.trig1_duration};
+    testSettings.trigInvert = zeros(length(param.trig1_startTime), 1);
 end
+
+if isfield(testSettings, 'trigPins') && ~isempty(testSettings.trigPins) % param.trig1 == true
+    if length(testSettings.trigPins) == size(testSettings.trigStartTimes, 1) && ...
+            length(testSettings.trigPins) == size(testSettings.trigDurations, 1)
+        
+        trigPins = testSettings.trigPins;
+        trigStartTimes = testSettings.trigStartTimes;
+        trigDurations = testSettings.trigDurations;
+        trigInvert   = testSettings.trigInvert;
+        trigTimeTol = 0.5; % Half a second
+        for i = 1:length(trigPins)
+            pins2(i) = {repmat(trigPins(i), 1, length(trigStartTimes{i}))};
+            inverts2(i) = {repmat(trigInvert(i), 1, length(trigStartTimes{i}))};
+        end
+        pins = horzcat(pins2{:})';
+        inverts = horzcat(inverts2{:})';
+        startTimes = horzcat(trigStartTimes{:})';
+        durations = horzcat(trigDurations{:})';
+        endTimes = startTimes + durations;
+        
+        triggers = sortrows(table(pins, startTimes, durations, endTimes, inverts), 'startTimes', 'ascend');
+        
+        trigAvail = true;
+        trig_Ind = 1;
+        trig_On = false(length(pins) , 1);
+
+    else
+        err.code = ErrorCode.BAD_SETTING;
+        err.msg = "The number of trigger pins and time inputs do not match." + newline + ...
+            " Make sure to enter a start time and duration for each trigger pin.";
+        send(errorQ, err);
+    end
+    
+else
+    trigAvail = false;
+end
+
 
 try
     % Initializations
@@ -105,87 +150,41 @@ try
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
                 timerPrev(3) = toc(testTimer);
-                
-                % Trigger1 (GPIO from LabJack)
-                if param.trig1==true
-                    % The trigger is activated on trig1StartTime
-                    % and switches OFF trig1EndTime
-                    if tElasped >= trig1StartTime(trig1_Ind) && ...
-                            tElasped < trig1StartTime(trig1_Ind) + trig1TimeTol && ...
-                            trig1_On == false
-                        disp("Trigger ON - " + num2str(timerPrev(3))+ newline)
-                        pinVal = true;
-                        % Make sure the heating pad is ON
-                        ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', param.trig1_pin, pinVal, 0, 0);
-                        ljudObj.GoOne(ljhandle);
-                        trig1_On = true;
-                    elseif tElasped >= trig1EndTime(trig1_Ind) && ...
-                            tElasped < trig1EndTime(trig1_Ind) + trig1TimeTol && ... 
-                            trig1_On == true
-                        disp("Trigger OFF - " + num2str(timerPrev(3))+ newline)
-                        % Make sure the heating pad is ON
-                        ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', param.trig1_pin, ~pinVal, 0, 0);
-                        ljudObj.GoOne(ljhandle);
-                        trig1_On = false;
-                        if length(trig1StartTime) > 1 && trig1_Ind ~= length(trig1StartTime)
-                            trig1_Ind = trig1_Ind + 1;
-                        end
-                    end
-                end
-                
+
                 script_queryData; % Run Script to query data from devices
                 script_failSafes; %Run FailSafe Checks
-                
+                script_checkGUICmd; % Check to see if there are any commands from GUI
                 % if limits are reached, break loop
-                if errorCode == 1
+                if errorCode == 1 || strcmpi(testStatus, "stop")
+                    script_idle;
                     break;
                 end
             end
+            %% Triggers (GPIO from LabJack)
+            script_triggerDigitalPins;
+
         end
         batteryParam.soc(cellIDs) = 0; % 0% DisCharged
     else
         % While SOC is greater than specified
         while battSOC > targSOC
-            %% Measurements and Fail Safes
+            %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
                 timerPrev(3) = toc(testTimer);
-                
-                % Trigger1 (GPIO from LabJack)
-                if param.trig1==true
-                    % The trigger is activated on trig1StartTime
-                    % and switches OFF trig1EndTime
-                    if tElasped >= trig1StartTime(trig1_Ind) && ...
-                            tElasped < trig1StartTime(trig1_Ind) + trig1TimeTol && ...
-                            trig1_On == false
-                        disp("Trigger ON - " + num2str(timerPrev(3))+ newline)
-                        pinVal = false;
-                        % Make sure the heating pad is ON
-                        ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', param.trig1_pin, pinVal, 0, 0);
-                        ljudObj.GoOne(ljhandle);
-                        trig1_On = true;
-                    elseif tElasped >= trig1EndTime(trig1_Ind) && ...
-                            tElasped < trig1EndTime(trig1_Ind) + trig1TimeTol && ... 
-                            trig1_On == true
-                        disp("Trigger OFF - " + num2str(timerPrev(3))+ newline)
-                        % Make sure the heating pad is ON
-                        ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', param.trig1_pin, ~pinVal, 0, 0);
-                        ljudObj.GoOne(ljhandle);
-                        trig1_On = false;
-                        if length(trig1StartTime) > 1 && trig1_Ind ~= length(trig1StartTime)
-                            trig1_Ind = trig1_Ind + 1;
-                        end
-                    end
-                end
-                
+
                 script_queryData; % Run Script to query data from devices
                 script_failSafes; %Run FailSafe Checks
-                
+                script_checkGUICmd; % Check to see if there are any commands from GUI
                 % if limits are reached, break loop
-                if errorCode == 1
+                if errorCode == 1 || strcmpi(testStatus, "stop")
+                    script_idle;
                     break;
                 end
             end
+            %% Triggers (GPIO from LabJack)
+            script_triggerDigitalPins;
+        
         end
     end
 

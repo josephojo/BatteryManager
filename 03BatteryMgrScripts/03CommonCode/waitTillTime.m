@@ -3,7 +3,8 @@ function battTS = waitTillTime(targTime, varargin)
 %is up
 %
 %   Inputs: 
-%       targTime            : Target time (s) to wait for
+%       targSOC            : Target time to charge for
+%      	chargeCurr          : Current (A) to charge
 %       varargin   
 %			trig1         	= false,  		: Accepts a Command to use the trigger activate something such as a heat pad
 %			trig1_pin     	= 4,      		: Specifies what pin on the MCU to use(Initially used on a LABJack U3-HV)
@@ -14,46 +15,56 @@ function battTS = waitTillTime(targTime, varargin)
 %			caller      	= "cmdWindow", 	: Specifies who the parent caller is. The GUI or MatLab's cmd window. Implementations between both can be different
 %			psuArgs       	= [],     		: Connection details of the power supply
 %			eloadArgs     	= [],     		: Connection details of the Electronic Load
-%			thermoArgs    	= [],     		: Connection details of the Temperature measuring module
-%			daqArgs     	= [],     		: Connection details of the Data Acquisition System. (Switches Relays and obtaines measurements)
+%			tempModArgs    	= [],     		: Connection details of the Temperature measuring module
+%			sysMCUArgs     	= [],     		: Connection details of the Data Acquisition System. (Switches Relays and obtaines measurements)
+%			sysMCUArgs     	= [],     		: Arguments from the GUI used to save Data results
+%			saveArgs     	= [],     		: Arguments from the GUI used to save Data results
+%			stackArgs     	= [],     		: Arguments from the GUI about the cells to be tested
 %			dataQ         	= [],     		: Pollable DataQueue for real-time data transfer between 
 %                                               2 parallel-run programs such as the function and GUI
 %			errorQ        	= [],     		: Pollable DataQueue for real-time error data (exceptions) 
 %                                               transfer between 2 parallel-run programs such as the function and GUI
-%			testSettings  	= []);    		: Settings for the test such as cell configuration, sample time, data to capture etc
+%			randQ        	= [],     		: Pollable DataQueue for miscellaneous data (e.g confirmations etc) 
+%                                               transfer between 2 parallel-run programs such as the function and GUI
+%			testSettings  	= [];    		: Settings for the test such as cell configuration, sample time, data to capture etc
 
-% clearvars;
+
+%% Setup Code
 try
-    
+
     param = struct(...
-        'trig1',            false,  ... % General to most functions
-        'trig1_pin',        4,      ... %           "
-        'trig1_startTime',  [10.0], ... %           "
-        'trig1_duration',   [2.0],  ... %           "
-                        ...             %           "
-        'cellIDs',          [],     ... %           "
-        'caller',      "cmdWindow", ... %           "
-        'psuArgs',          [],     ... %           "
-        'eloadArgs',        [],     ... %           "
-        'thermoArgs',       [],     ... %           "
-        'daqArgs',          [],     ... %           "
-        'dataQ',            [],     ... %           "
-        'errorQ',           [],     ... %           "
-        'testSettings',     []);        % -------------------------
-    
-    
+    'trig1',            false,  ... % General to most functions
+    'trig1_pin',        4,      ... %           "
+    'trig1_startTime',  [10.0], ... %           "
+    'trig1_duration',   [2.0],  ... %           "
+                    ...             %           "
+    'cellIDs',          [],     ... %           "
+    'caller',      "cmdWindow", ... %           "
+    'psuArgs',          [],     ... %           "
+    'eloadArgs',        [],     ... %           "
+    'tempModArgs',      [],     ... %           "
+    'balArgs',          [],     ... %           "
+    'sysMCUArgs',       [],     ... %           "
+    'saveArgs',         [],     ... %           "
+    'stackArgs',        [],     ... %           "
+    'dataQ',            [],     ... %           "
+    'errorQ',           [],     ... %           "
+    'randQ',            [],     ... %           "
+    'testSettings',     []);        % -------------------------
+
+
     % read the acceptable names
     paramNames = fieldnames(param);
-    
+
     % Ensure variable entries are pairs
     nArgs = length(varargin);
     if round(nArgs/2)~=nArgs/2
         error('runProfile needs propertyName/propertyValue pairs')
     end
-    
+
     for pair = reshape(varargin,2,[]) %# pair is {propName;propValue}
         inpName = pair{1}; %# make case insensitive
-        
+
         if any(strcmpi(inpName,paramNames))
             %# overwrite options. If you want you can test for the right class here
             %# Also, if you find out that there is an option you keep getting wrong,
@@ -63,42 +74,80 @@ try
             error('%s is not a recognized parameter name',inpName)
         end
     end
-    
+
     % ---------------------------------
-    
+
     cellIDs = param.cellIDs;
     caller = param.caller;
     psuArgs = param.psuArgs;
     eloadArgs = param.eloadArgs;
-    thermoArgs = param.thermoArgs;
-    daqArgs = param.daqArgs;
+    tempModArgs = param.tempModArgs;
+    balArgs = param.balArgs;
+    sysMCUArgs = param.sysMCUArgs;
+    stackArgs = param.stackArgs;
     dataQ = param.dataQ;
     errorQ = param.errorQ;
+    randQ = param.randQ;
     testSettings = param.testSettings;
+    
+    if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
+            && param.trig1 == true
+        testSettings.trigPins = param.trig1_pin;
+        testSettings.trigStartTimes = {param.trig1_startTime};
+        testSettings.trigDurations = {param.trig1_duration};
+        testSettings.trigInvert = zeros(length(param.trig1_startTime), 1);
+    end
+    
+    if isfield(testSettings, 'trigPins') && ~isempty(testSettings.trigPins) % param.trig1 == true
+        if length(testSettings.trigPins) == size(testSettings.trigStartTimes, 1) && ...
+                length(testSettings.trigPins) == size(testSettings.trigDurations, 1)
+            
+            trigPins = testSettings.trigPins;
+            trigStartTimes = testSettings.trigStartTimes;
+            trigDurations = testSettings.trigDurations;
+            trigInvert   = testSettings.trigInvert;
+            trigTimeTol = 0.5; % Half a second
+            for i = 1:length(trigPins)
+                pins2(i) = {repmat(trigPins(i), 1, length(trigStartTimes{i}))};
+                inverts2(i) = {repmat(trigInvert(i), 1, length(trigStartTimes{i}))};
+            end
+            pins = horzcat(pins2{:})';
+            inverts = horzcat(inverts2{:})';
+            startTimes = horzcat(trigStartTimes{:})';
+            durations = horzcat(trigDurations{:})';
+            endTimes = startTimes + durations;
+            
+            triggers = sortrows(table(pins, startTimes, durations, endTimes, inverts), 'startTimes', 'ascend');
+            
+            trigAvail = true;
+            trig_Ind = 1;
+            trig_On = false(length(pins) , 1);
+            
+        else
+            err.code = ErrorCode.BAD_SETTING;
+            err.msg = "The number of trigger pins and time inputs do not match." + newline + ...
+                " Make sure to enter a start time and duration for each trigger pin.";
+            send(errorQ, err);
+        end
+        
+    else
+        trigAvail = false;
+    end
+    
+    
     
     disp("Waiting for " + num2str(targTime) + " Seconds!");
     
     script_initializeDevices;
     script_initializeVariables;
 
-    
     verbose = 0;
     battState = "idle";
     
-    testTimer = tic;
+    testTimer = tic; % For sampling measured data
     
     script_queryData;
 
-    
-    trig1_On = false;
-    trig1_Ind = 1; % Index for iterating over the start times specified for trig1
-    
-    if param.trig1 == true
-        trig1StartTime = param.trig1_startTime;
-        trig1EndTime = param.trig1_startTime + param.trig1_duration;
-        trig1TimeTol = 0.5; % Half a second
-    end
-    
     WaitTimer = tic;
     waitTicker = 0;
     
@@ -109,34 +158,16 @@ try
             timerPrev(3) = toc(testTimer);
             script_queryData; % Runs the script that queries data from the devices. Stores the results in the [dataCollection] Variable
             script_failSafes; %Run FailSafe Checks
-
-        end
-        % Trigger1 (GPIO from LabJack)
-        if param.trig1==true
-            % The trigger is activated on trig1StartTime
-            % and switches OFF trig1EndTime
-            if tElasped >= trig1StartTime(trig1_Ind) && ...
-                    tElasped < trig1StartTime(trig1_Ind) + trig1TimeTol && ...
-                    trig1_On == false
-                disp("Trigger ON - " + num2str(timerPrev(3))+ newline)
-                pinVal = true;
-                % Make sure the heating pad is ON
-                ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', param.trig1_pin, pinVal, 0, 0);
-                ljudObj.GoOne(ljhandle);
-                trig1_On = true;
-            elseif tElasped >= trig1EndTime(trig1_Ind) && ...
-                    tElasped < trig1EndTime(trig1_Ind) + trig1TimeTol && ...
-                    trig1_On == true
-                disp("Trigger OFF - " + num2str(timerPrev(3))+ newline)
-                % Make sure the heating pad is ON
-                ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', param.trig1_pin, ~pinVal, 0, 0);
-                ljudObj.GoOne(ljhandle);
-                trig1_On = false;
-                if length(trig1StartTime) > 1 && trig1_Ind ~= length(trig1StartTime)
-                    trig1_Ind = trig1_Ind + 1;
-                end
+            script_checkGUICmd; % Check to see if there are any commands from GUI
+            % if limits are reached, break loop
+            if errorCode == 1 || strcmpi(testStatus, "stop")
+                script_idle;
+                break;
             end
         end
+        
+        %% Triggers (GPIO from LabJack)
+        script_triggerDigitalPins
     end
     
     disp("Waiting Done" + newline);

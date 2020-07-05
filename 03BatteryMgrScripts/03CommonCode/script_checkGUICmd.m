@@ -6,6 +6,7 @@ if strcmpi(caller, "gui")
        switch valComdQ
            case "stop"
                testStatus = "stop";
+               trigAvail = false;
                reply2Q = "stopped";
            case "pause"
                testStatus = "pause";

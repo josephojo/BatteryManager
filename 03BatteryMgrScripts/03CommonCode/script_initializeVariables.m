@@ -30,6 +30,25 @@ else
     %}
 end
 
+%% Default input settings for running from cmd window
+
+% Default action for when the command window is the caller and testSetting
+% is empty
+if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "data2Record")
+    testSettings.data2Record = ["volt", "curr", "SOC", "Cap", "Temp"];
+end
+if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "voltMeasDev")
+    testSettings.voltMeasDev = "mcu";
+end
+if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "currMeasDev")
+    testSettings.currMeasDev = "powerDev";
+end
+if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "tempMeasDev")
+    testSettings.tempMeasDev = "Mod16Ch";
+end
+
+
+
 %% Battery Connection Info
 
 % If for some reason the variable does not exist.
@@ -50,6 +69,8 @@ numCells = length(cellIDs);
 %Load PrevSOC
 load(dataLocation + "007BatteryParam.mat", 'batteryParam');
 
+% Let the user enter the parameter for the cellIDs specified if they don't
+% exist
 if caller == "cmdWindow"
     % Input data for new battery into database.
     for cellID = cellIDs
@@ -157,6 +178,7 @@ else
         end
     end
 end
+
 %% TC Info
 if caller == "gui"
     tempChnls = testSettings.tempChnls;
@@ -174,7 +196,7 @@ else
         tempChnls = [];
     end
     
-    if ~exist("tempChnls", 'var')
+    if isempty(tempChnls) % ~exist("tempChnls", 'var')
         prompt = {'What channels have the temperature sensors been connected to? (Seperate by commas)'};
         dlgtitle = 'Info on Temp. Sensors';
         dims = [1 50];
@@ -207,7 +229,6 @@ psuData = zeros(1, 2); % Container for storing PSU Data
 eloadData = zeros(1, 2); % Container for storing Eload Data
 thermoData = zeros(1, length(tempChnls)); % Container for storing TC Data
 % ambTemp = 0;
-
 
 
 if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "mcu") 
@@ -245,7 +266,7 @@ timerPrev = zeros(5, 1);
 % timerPrev(4): For BattSOC Estimation
 % timerPrev(5): For Progress dot (Dot that shows while code runs)
 
-if caller == "gui"
+if strcmpi(caller, "gui")
     battProp = stackArgs; % Battery Properties
 else
     battProp = batteryParam(cellIDs, :); % Battery Properties
@@ -264,7 +285,7 @@ else
 end
 
 chargeReq = 0; % Charge Request - true/1 = Charging, false/0 = discharging
-chargeVolt = highVoltLimit + 0.005; % Due to the small resistance in the wiring
+chargeVolt = highVoltLimit + 0.003; % Due to the small resistance in the wiring
 
 % batt is regarded as the battery stack series or parallel
 % cell is the individual cells
@@ -298,7 +319,7 @@ battCoreTempLimit = mean(battProp.maxCoreTemp(cellIDs)); % Maximum Core limit of
 errorCode = 0;
 
 
-% verbose = 0; % How often to display (stream to screen). 1 = constantly, 0 = once a while
+verbose = 0; % How often to display (stream to screen). 1 = constantly, 0 = once a while
 if ~exist("verbose", 'var')
     verbose = 1;
 end

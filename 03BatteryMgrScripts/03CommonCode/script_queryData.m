@@ -18,25 +18,6 @@ end
 % Capture Time
 tElasped = toc(testTimer) - timerPrev(1);
 
-
-% Default action for when the command window is the caller and testSetting
-% is empty
-if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "data2Record")
-    testSettings.data2Record = ["volt", "curr", "SOC", "Cap", "Temp"];
-end
-if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "voltMeasDev")
-    testSettings.voltMeasDev = "mcu";
-end
-if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "currMeasDev")
-    testSettings.currMeasDev = "powerDev";
-end
-if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "tempMeasDev")
-    testSettings.tempMeasDev = "Mod16Ch";
-end
-
-
-
-
 % Temperature Measurement for the stack. Each temp measurement is indicated
 % by the channel numbers they are connected to
 if ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.tempMeasDev, "Mod16Ch")
@@ -232,19 +213,19 @@ else
             %                 end
             %             end
             Tstr = "";
-            Bstr = "";
-            for cellID = cellIDs
-                Tstr = Tstr + sprintf("Ta " + cellID + " = %.2f ºC\t\t", ambTemp);
-                Tstr = Tstr + sprintf("Ts " + cellID + " = %.2f ºC\t\t", cells.surfTemp(cellID));
-                if isempty(coreInd)
-                    Tstr = Tstr + sprintf("Tc " + cellID + " = %.2f ºC\t", cells.coreTemp(cellID));
+            for i = 1:length(tempChnls)
+                Tstr = Tstr + sprintf("TC@Ch" + tempChnls(i) + " = %.2fºC\t\t" ,thermoData(i));
+                if mod(i, 3) == 0 && i ~= length(tempChnls)
+                   Tstr = Tstr + newline;
                 end
-                
+            end
+            
+            Bstr = "";
+            for cellID = cellIDs                
                 Bstr = Bstr + sprintf("Curr " + cellID + " = %.2f A\t\t", cells.curr(cellID));
                 Bstr = Bstr + sprintf("SOC " + cellID + " = %.2f \t\t", cells.SOC(cellID)*100);
                 Bstr = Bstr + sprintf("Ah " + cellID + " = %.3f Ah\t", cells.AhCap(cellID));
                 Bstr = Bstr + newline;
-                Tstr = Tstr + newline;
             end
             
             Bstr = Bstr + sprintf("\nBatt Volt = %.4f V\tBatt Curr = %.4f A\n" + ...
@@ -266,25 +247,24 @@ else
         %                 end
         %             end
         Tstr = "";
-        Bstr = "";
-        for cellID = cellIDs
-            Tstr = Tstr + sprintf("Ta " + cellID + " = %.2f ºC\t\t", ambTemp);
-            Tstr = Tstr + sprintf("Ts " + cellID + " = %.2f ºC\t\t", cells.surfTemp(cellID));
-            if isempty(coreInd)
-                Tstr = Tstr + sprintf("Tc " + cellID + " = %.2f ºC\t", cells.coreTemp(cellID));
+        for i = 1:length(tempChnls)
+            Tstr = Tstr + sprintf("TC@Ch" + tempChnls(i) + " = %.2fºC\t\t" ,thermoData(i));
+            if mod(i, 3) == 0 && i ~= length(tempChnls)
+               Tstr = Tstr + newline;
             end
-            
+        end
+
+        Bstr = "";
+        for cellID = cellIDs                
             Bstr = Bstr + sprintf("Curr " + cellID + " = %.2f A\t\t", cells.curr(cellID));
             Bstr = Bstr + sprintf("SOC " + cellID + " = %.2f \t\t", cells.SOC(cellID)*100);
             Bstr = Bstr + sprintf("Ah " + cellID + " = %.3f Ah\t", cells.AhCap(cellID));
             Bstr = Bstr + newline;
-            Tstr = Tstr + newline;
         end
-        
+
         Bstr = Bstr + sprintf("\nBatt Volt = %.4f V\tBatt Curr = %.4f A\n" + ...
             "Batt SOC = %.2f \t\tBatt AH = %.3f\n\n", battVolt, battCurr,...
             battSOC*100, AhCap);
-        
         fprintf(Tstr + newline);
         fprintf(Bstr);
     end

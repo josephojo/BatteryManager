@@ -30,13 +30,19 @@ while battVolt <= highVoltLimit
     % Querys all measurements every readPeriod second(s)
     if toc(testTimer) - timerPrev(3) >= readPeriod
         timerPrev(3) = toc(testTimer);
+
         script_queryData; % Run Script to query data from devices
         script_failSafes; %Run FailSafe Checks
+        script_checkGUICmd; % Check to see if there are any commands from GUI
         % if limits are reached, break loop
-        if errorCode == 1
+        if errorCode == 1 || strcmpi(testStatus, "stop")
+            script_idle;
             break;
         end
     end
+    %% Triggers (GPIO from LabJack)
+    script_triggerDigitalPins;
+
 end
 
 %% CV Mode
@@ -51,13 +57,19 @@ while battCurr > cvMinCurr
     % Querys all measurements every readPeriod second(s)
     if toc(testTimer) - timerPrev(3) >= readPeriod
         timerPrev(3) = toc(testTimer);
+
         script_queryData; % Run Script to query data from devices
         script_failSafes; %Run FailSafe Checks
+        script_checkGUICmd; % Check to see if there are any commands from GUI
         % if limits are reached, break loop
-        if errorCode == 1
+        if errorCode == 1 || strcmpi(testStatus, "stop")
+            script_idle;
             break;
         end
     end
+    %% Triggers (GPIO from LabJack)
+    script_triggerDigitalPins;
+
 end
 
 % Plot the data if true
