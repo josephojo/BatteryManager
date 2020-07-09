@@ -144,6 +144,7 @@ try
     script_discharge; % Run Script to begin/update discharging process
     
     if targSOC == 0        
+        trackSOCFS = false; % Don't complain/warn the user if the SOC goes below 0 since we're tracking voltage
         % While battVolt is greater than low limit
         while battVolt >= lowVoltLimit
             %% Measurements

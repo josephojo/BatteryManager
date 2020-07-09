@@ -142,12 +142,13 @@ try
     curr = chargeCurr; %2.5A is 1C for the ANR26650
     
 %     testTimer = tic; % Start Timer for read period
-    
+
     script_queryData; % Run Script to query data from devices
     script_failSafes; %Run FailSafe Checks
     script_charge; % Run Script to begin/update charging process
     
     if targSOC == 1
+        trackSOCFS = false; % Don't complain/warn the user if the SOC goes beyond 1 since we're tracking voltage
         %% CC mode
         % While the battery voltage is less than the limit (our 100% SOC)
         while battVolt <= highVoltLimit
