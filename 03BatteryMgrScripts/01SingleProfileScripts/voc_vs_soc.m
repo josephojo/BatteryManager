@@ -17,21 +17,21 @@ dischargeCurr = -(cRate * ratedCap);
 testSettings.tempChnls = [9, 10];
 
 
-% % Charge at about 25°C
-% battTS = chargeToSOC(1, 2*ratedCap, 'cellIDs', "AB1", 'testSettings', testSettings);
-% 
-% battTS_Wait_Chrg = waitTillTime(1200, 'cellIDs', "AB1", 'testSettings', testSettings);
-% battTS = appendBattTS2TS(battTS, battTS_Wait_Chrg);
-% 
-% % Discharge at same (more or less constant temperature)
-% battTS_dchrg = dischargeToSOC(0, dischargeCurr,  'cellIDs', "AB1",...
-%     'testSettings', testSettings); % Discharge to 0% SOC
-% battTS = appendBattTS2TS(battTS, battTS_dchrg);
+% Charge at about 25°C
+battTS = chargeToSOC(1, 0.3*ratedCap, 'cellIDs', "AB1", 'testSettings', testSettings);
+
+battTS_Wait_Chrg = waitTillTime(1200, 'cellIDs', "AB1", 'testSettings', testSettings);
+battTS = appendBattTS2TS(battTS, battTS_Wait_Chrg);
+
+% Discharge at same (more or less constant temperature)
+battTS_dchrg = dischargeToSOC(0, dischargeCurr,  'cellIDs', "AB1",...
+    'testSettings', testSettings); % Discharge to 0% SOC
+battTS = appendBattTS2TS(battTS, battTS_dchrg);
 save(dataLocation + "008OCV_AB1.mat",'battTS', 'battTS_dchrg'); % ,'-append');
 
-% battTS_Wait_dchrg = waitTillTime(1200, 'cellIDs', "AB1", 'testSettings', testSettings);
-% battTS = appendBattTS2TS(battTS, battTS_Wait_dchrg);
-% save(dataLocation + "008OCV_AB1.mat",'battTS', 'battTS_Wait_dchrg','-append');
+battTS_Wait_dchrg = waitTillTime(1200, 'cellIDs', "AB1", 'testSettings', testSettings);
+battTS = appendBattTS2TS(battTS, battTS_Wait_dchrg);
+save(dataLocation + "008OCV_AB1.mat",'battTS', 'battTS_Wait_dchrg','-append');
 
 % Charge at same (more or less constant temperature)
 battTS_chrg = chargeToSOC(1, chargeCurr,  'cellIDs', "AB1",...
