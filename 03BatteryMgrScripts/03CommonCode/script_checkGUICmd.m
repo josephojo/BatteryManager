@@ -16,14 +16,30 @@ if strcmpi(caller, "gui")
                tempTime = toc(testTimer);
                state = battState; % get charging state
                script_idle;
-               while ~strcmpi(testStatus, "running") || ~strcmpi(testStatus, "stop")
+               while true
                    if toc(testTimer) - timerPrev(3) >= readPeriod
-                        timerPrev(3) = toc(testTimer);
-                        script_queryData; % Run Script to query data from devices
-                        script_failSafes; %Run FailSafe Checks
-                        script_checkGUICmd; % Check to see if there are any commands from GUI
+                       timerPrev(3) = toc(testTimer);
+                       script_queryData; % Run Script to query data from devices
+                       script_failSafes; %Run FailSafe Checks
+                       if ~isempty(cmdQ) && cmdQ.QueueLength > 0
+                           reply2Q = "Failed";
+                           valComdQ = poll(cmdQ);
+                           switch valComdQ
+                               case "stop"
+                                   testStatus = "stop";
+                                   trigAvail = false;
+                                   reply2Q = "stopped";
+                               case "unpause"
+                                   testStatus = "running";
+                                   reply2Q = "unpaused";
+                           end
+                       end
+                   end
+                   if strcmpi(testStatus, "running") || strcmpi(testStatus, "stop")
+                       break;
                    end
                end
+               
                if strcmpi(testStatus, "running") % If new command is to unpause
                    pauseDuration = toc(testTimer) - tempTime;
                    % Since triggers are based on times since program started,
@@ -33,17 +49,14 @@ if strcmpi(caller, "gui")
                        triggers.endTimes = trigger.endTimes + pauseDuration;
                    end
                    
-                   if strcmp(state, "charging")
+                   if strcmpi(state, "charging")
                        script_charge;
-                   elseif strcmp(state, "discharging")
+                   elseif strcmpi(state, "discharging")
                        script_discharge;
                    end
                end
-           case "unpause"
-               testStatus = "running";
-               reply2Q = "unpaused";
            otherwise
-%                reply2Q = "Unrecognized Command: " + string(valComdQ);
+               reply2Q = "Unrecognized Command: " + string(valComdQ);
        end
        
        if ~strcmpi(valComdQ, "pause")
