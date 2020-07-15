@@ -160,10 +160,6 @@ try
     script_failSafes; %Run FailSafe Checks
     
     
-    counter = 1; %In order for the sampling of data from profile
-    % to be based on the number of samples
-    timerPrev(1) = toc;
-    
     for iter = 1:iterations
         if(finalSOC < initialSOC)
             if battSOC <= finalSOC, break; end
@@ -173,6 +169,16 @@ try
             warning('Initial and Final SOC values are Equal.');
             break;
         end
+            
+        if iter > 1
+            disp("Beginning Iteration Number: " + num2str(iter) +...
+                " ; Estimated Time to commpletion: " + ...
+            string(datetime('now') + minutes((currProfile.Time(end) * ((iterations + 1) - iter))/60)));
+        end
+        
+        counter = 1; %In order for the sampling of data from profile
+        % to be based on the number of samples    
+        timerPrev(2) = toc(testTimer);
         
         % While Loop: Runs through the currProfile
         while counter <= length(profileTS.Time)
@@ -181,16 +187,12 @@ try
                 if battSOC <= finalSOC, break; end
             elseif (finalSOC > initialSOC)
                 if battSOC >= finalSOC, break; end
-            else
-                warning('Initial and Final SOC values are Equal.');
-                break;
             end
             
             %% Commands
             % Evaluates and changes commands based on the timing provided in the
             % profile
-            if toc(testTimer) >= profileTS.Time(counter)
-                timerPrev(2) = toc(testTimer);
+            if (toc(testTimer)- timerPrev(2)) >= profileTS.Time(counter)
                 
                 % Evaluator
                 % If the next current value is positive and the battery is
