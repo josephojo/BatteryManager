@@ -27,6 +27,9 @@ function battTS = waitTillTime(targTime, varargin)
 %			randQ        	= [],     		: Pollable DataQueue for miscellaneous data (e.g confirmations etc) 
 %                                               transfer between 2 parallel-run programs such as the function and GUI
 %			testSettings  	= [];    		: Settings for the test such as cell configuration, sample time, data to capture etc
+%			verbosity       = 0;    		: How often to display data on the command line
+%                                               0: every 60 timesteps 
+%                                               1: every timesteps 
 
 
 %% Setup Code
@@ -50,7 +53,8 @@ try
     'dataQ',            [],     ... %           "
     'errorQ',           [],     ... %           "
     'randQ',            [],     ... %           "
-    'testSettings',     []);        % -------------------------
+    'testSettings',     [],     ... %           "
+    'verbosity',         0);        % -------------------------
 
 
     % read the acceptable names
@@ -141,7 +145,7 @@ try
     script_initializeDevices;
     script_initializeVariables;
 
-    verbose = 0;
+    verbose = param.verbosity;
     battState = "idle";
     
     testTimer = tic; % For sampling measured data
