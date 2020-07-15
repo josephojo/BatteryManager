@@ -1,254 +1,247 @@
-function battTS = runProfile(profileTS, initialSOC, finalSOC, mode, varargin)
+function battTS = runProfile(profileTS, initialSOC, finalSOC, iterations, varargin)
 %RUNPROFILE Summary of this function goes here
 %   Detailed explanation goes here
-
-%Change Log
-%   REVISION    CHANGE                                          DATE-YYMMDD
-%   00          Initial Revision                                190304
-%   01          Adopted from P01 for generating data with       190520
-%               abnormal heat Gen (Done by activating heat pad)
-%   02          Implemented functionality for multi-cell stacks 191115
+%   Inputs:
+%       profileTS           : Timeseries formatted data with time and
+%                               current values so that each current value
+%                               can be applied at the corresponding times.
+%       initialSOC          : What SOC should the profile begin from
+%       finalSOC            : What SOC should end the profile test.
+%       iterations          : How many times to run it.
+%       varargin
+%			trig1         	= false,  		: Accepts a Command to use the trigger activate something such as a heat pad
+%			trig1_pin     	= 4,      		: Specifies what pin on the MCU to use(Initially used on a LABJack U3-HV)
+%			trig1_startTime	= [10.0], 		: How long into the parent function to trigger. Can be an array of times (s)
+%			trig1_duration	= [2.0],  		: How long should the trigger last
+%
+%			cellIDs       	= [],     		: IDs of Cells being tested. If parallel specify all cells in string array
+%			caller      	= "cmdWindow", 	: Specifies who the parent caller is. The GUI or MatLab's cmd window. Implementations between both can be different
+%			psuArgs       	= [],     		: Connection details of the power supply
+%			eloadArgs     	= [],     		: Connection details of the Electronic Load
+%			tempModArgs    	= [],     		: Connection details of the Temperature measuring module
+%			sysMCUArgs     	= [],     		: Connection details of the Data Acquisition System. (Switches Relays and obtaines measurements)
+%			sysMCUArgs     	= [],     		: Arguments from the GUI used to save Data results
+%			saveArgs     	= [],     		: Arguments from the GUI used to save Data results
+%			stackArgs     	= [],     		: Arguments from the GUI about the cells to be tested
+%			dataQ         	= [],     		: Pollable DataQueue for real-time data transfer between
+%                                               2 parallel-run programs such as the function and GUI
+%			errorQ        	= [],     		: Pollable DataQueue for real-time error data (exceptions)
+%                                               transfer between 2 parallel-run programs such as the function and GUI
+%			randQ        	= [],     		: Pollable DataQueue for miscellaneous data (e.g confirmations etc)
+%                                               transfer between 2 parallel-run programs such as the function and GUI
+%			testSettings  	= []);    		: Settings for the test such as cell configuration, sample time, data to capture etc
 
 
 %% Setup Code
-% Initializations
-try
-   param = struct('cellIDs',        [],...
-                'trig1',            false,...
-                'trig1_pin',        4,...
-                'trig1_startTime',  [10.0],...
-                'trig1_duration',   [2.0]);
+
+param = struct(...
+    'trig1',            false,  ... % General to most functions
+    'trig1_pin',        4,      ... %           "
+    'trig1_startTime',  [10.0], ... %           "
+    'trig1_duration',   [2.0],  ... %           "
+    ...             %           "
+    'cellIDs',          [],     ... %           "
+    'caller',      "cmdWindow", ... %           "
+    'psuArgs',          [],     ... %           "
+    'eloadArgs',        [],     ... %           "
+    'tempModArgs',      [],     ... %           "
+    'balArgs',          [],     ... %           "
+    'sysMCUArgs',       [],     ... %           "
+    'saveArgs',         [],     ... %           "
+    'stackArgs',        [],     ... %           "
+    'dataQ',            [],     ... %           "
+    'errorQ',           [],     ... %           "
+    'randQ',            [],     ... %           "
+    'testSettings',     []);        % -------------------------
 
 
-    % read the acceptable names
-    paramNames = fieldnames(param);
+% read the acceptable names
+paramNames = fieldnames(param);
 
-    % Ensure variable entries are pairs
-    nArgs = length(varargin);
-    if round(nArgs/2)~=nArgs/2
-       error('runProfile needs propertyName/propertyValue pairs')
+% Ensure variable entries are pairs
+nArgs = length(varargin);
+if round(nArgs/2)~=nArgs/2
+    error('runProfile needs propertyName/propertyValue pairs')
+end
+
+for pair = reshape(varargin,2,[]) %# pair is {propName;propValue}
+    inpName = pair{1}; %# make case insensitive
+    
+    if any(strcmpi(inpName,paramNames))
+        %# overwrite options. If you want you can test for the right class here
+        %# Also, if you find out that there is an option you keep getting wrong,
+        %# you can use "if strcmp(inpName,'problemOption'),testMore,end"-statements
+        param.(inpName) = pair{2};
+    else
+        error('%s is not a recognized parameter name',inpName)
     end
-
-    for pair = reshape(varargin,2,[]) %# pair is {propName;propValue}
-       inpName = pair{1}; %# make case insensitive
-
-       if any(strcmpi(inpName,paramNames))
-          %# overwrite options. If you want you can test for the right class here
-          %# Also, if you find out that there is an option you keep getting wrong,
-          %# you can use "if strcmp(inpName,'problemOption'),testMore,end"-statements
-          param.(inpName) = pair{2};
-       else
-          error('%s is not a recognized parameter name',inpName)
-       end
-    end
+end
 
 % ---------------------------------
-    cellIDs = param.cellIDs;
+
+cellIDs = param.cellIDs;
+caller = param.caller;
+psuArgs = param.psuArgs;
+eloadArgs = param.eloadArgs;
+tempModArgs = param.tempModArgs;
+balArgs = param.balArgs;
+sysMCUArgs = param.sysMCUArgs;
+stackArgs = param.stackArgs;
+dataQ = param.dataQ;
+errorQ = param.errorQ;
+randQ = param.randQ;
+testSettings = param.testSettings;
+
+if iterations == 0 || isempty(iterations)
+   iterations = inf; 
+end
+
+
+if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
+        && param.trig1 == true
+    testSettings.trigPins = param.trig1_pin;
+    testSettings.trigStartTimes = {param.trig1_startTime};
+    testSettings.trigStartTimes = {param.trig1_duration};
+    testSettings.trigInvert = zeros(length(param.trig1_startTime), 1);
+end
+
+if isfield(testSettings, 'trigPins') && ~isempty(testSettings.trigPins) % param.trig1 == true
+    if length(testSettings.trigPins) == size(testSettings.trigStartTimes, 1) && ...
+            length(testSettings.trigPins) == size(testSettings.trigDurations, 1)
+        
+        trigPins = testSettings.trigPins;
+        trigStartTimes = testSettings.trigStartTimes;
+        trigDurations = testSettings.trigDurations;
+        trigInvert   = testSettings.trigInvert;
+        trigTimeTol = 0.5; % Half a second
+        for i = 1:length(trigPins)
+            pins2(i) = {repmat(trigPins(i), 1, length(trigStartTimes{i}))};
+            inverts2(i) = {repmat(trigInvert(i), 1, length(trigStartTimes{i}))};
+        end
+        pins = horzcat(pins2{:})';
+        inverts = horzcat(inverts2{:})';
+        startTimes = horzcat(trigStartTimes{:})';
+        durations = horzcat(trigDurations{:})';
+        endTimes = startTimes + durations;
+        
+        triggers = sortrows(table(pins, startTimes, durations, endTimes, inverts), 'startTimes', 'ascend');
+        
+        trigAvail = true;
+        trig_Ind = 1;
+        trig_On = false(length(pins) , 1);
+        
+    else
+        if strcmpi(caller, "gui")
+            err.code = ErrorCode.BAD_SETTING;
+            err.msg = "The number of trigger pins and time inputs do not match." + newline + ...
+                " Make sure to enter a start time and duration for each trigger pin.";
+            send(errorQ, err);
+        end
+    end
     
+else
+    trigAvail = false;
+end
+
+
+%% Begin Test
+try
+    % Initializations
     script_initializeDevices; % Initialized devices like Eload, PSU etc.
     script_initializeVariables; % Run Script to initialize common variables
     
     writePeriod = readPeriod; % Period to resample the input current profile
     
     % Resamples the input profile to the interval given in readPeriod
-    profileTS = resample(profileTS, profileTS.Time(1):writePeriod:profileTS.Time(length(profileTS.Time)));
+    timevec = profileTS.Time(1):writePeriod:profileTS.Time(end);
+    profileTS = resample(profileTS, timevec);
     
-    % Set default for mode if it isn't specified
-    if strcmpi(mode, '')
-        mode = 'cy';
-    end
-    
-%     if finalSOC == 0
-%         finalSOC = 1;
-%     end
-    
-    trig1_On = false;
-    trig1_Ind = 1; % Index for iterating over the start times specified for trig1
-    if param.trig1 == true
-        trig1StartTime = param.trig1_startTime;
-        trig1EndTime = param.trig1_startTime + param.trig1_duration;
-        trig1TimeTol = 0.5; % Half a second     
-    end
+    script_queryData; % Run Script to query data from devices
+    script_failSafes; %Run FailSafe Checks
     
     
-    %% Script
-    tic; % Start Timer
+    counter = 1; %In order for the sampling of data from profile
+    % to be based on the number of samples
+    timerPrev(1) = toc;
     
-    % Cycle Mode
-    if strcmpi(mode, 'cy')
-        counter = 1; %In order for the sampling of data from profile
-        % to be based on the number of samples
-        timerPrev(1) = toc;
+    for iter = 1:iterations
+        if(finalSOC < initialSOC)
+            if battSOC <= finalSOC, break; end
+        elseif (finalSOC > initialSOC)
+            if battSOC >= finalSOC, break; end
+        else
+            warning('Initial and Final SOC values are Equal.');
+            break;
+        end
         
         % While Loop: Runs through the currProfile
         while counter <= length(profileTS.Time)
+            
+            if(finalSOC < initialSOC)
+                if battSOC <= finalSOC, break; end
+            elseif (finalSOC > initialSOC)
+                if battSOC >= finalSOC, break; end
+            else
+                warning('Initial and Final SOC values are Equal.');
+                break;
+            end
+            
             %% Commands
-            % Evaluates and changes commands based on the timing provided on the
+            % Evaluates and changes commands based on the timing provided in the
             % profile
-            if toc >= profileTS.Time(counter)
-                timerPrev(2) = toc;
-                
-                % Trigger1 (GPIO from LabJack)
-                if param.trig1==true
-                    % The trigger is activated on trig1StartTime
-                    % and switches OFF trig1EndTime
-                    if tElasped >= trig1StartTime(trig1_Ind) && ...
-                            tElasped < trig1StartTime(trig1_Ind) + trig1TimeTol && ...
-                            trig1_On == false
-                        disp("Trigger ON - " + num2str(timerPrev(3))+ newline)
-                        pinVal = true;
-                        % Make sure the heating pad is ON
-                        ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', param.trig1_pin, pinVal, 0, 0);
-                        ljudObj.GoOne(ljhandle);
-                        trig1_On = true;
-                    elseif tElasped >= trig1EndTime(trig1_Ind) && ...
-                            tElasped < trig1EndTime(trig1_Ind) + trig1TimeTol && ... 
-                            trig1_On == true
-                        disp("Trigger OFF - " + num2str(timerPrev(3))+ newline)
-                        % Make sure the heating pad is ON
-                        ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', param.trig1_pin, ~pinVal, 0, 0);
-                        ljudObj.GoOne(ljhandle);
-                        trig1_On = false;
-                        if length(trig1StartTime) > 1 && trig1_Ind ~= length(trig1StartTime)
-                            trig1_Ind = trig1_Ind + 1;
-                        end
-                    end
-                end
+            if toc(testTimer) >= profileTS.Time(counter)
+                timerPrev(2) = toc(testTimer);
                 
                 % Evaluator
                 % If the next current value is positive and the battery is
                 % currently charging, discharge the battery or else
                 % charge the battery (charging is simulating regen braking
-                if (round(profileTS.Data(counter),1) < 0)
-                    chargeReq = false; % Make next command a discharge command
+                if (round(profileTS.Data(counter),2) < 0)
+                    %                 chargeReq = false; % Make current command a discharge command
                     curr = profileTS.Data(counter);
-                    %                 disp("curr = " + num2str(curr));
-                elseif (round(profileTS.Data(counter),1) > 0)
-                    chargeReq = true; % Make next command a charge command
-                    curr = profileTS.Data(counter);
-                    %                 disp("curr = " + num2str(curr));
-                else
-                    chargeReq = 3; % Not charging or discharging
-                end
-                
-                % Charge Command
-                if (chargeReq == true)
                     script_charge; % Run Script to begin/update charging process
-%                     wait (0.15)
-                    % Discharge Command
-                elseif (chargeReq == false)
+                elseif (round(profileTS.Data(counter),2) > 0)
+                    %                 chargeReq = true; % Make current command a charge command
+                    curr = profileTS.Data(counter);
                     script_discharge; % Run Script to begin/update discharging process
                 else
-                    script_idle; % Run Script
+                    %                 chargeReq = 3; % Not charging or discharging
+                    script_idle; % Run Script to allow rest
                 end
-                %             disp(battState +" ; " + num2str(toc) + " seconds");
                 
                 script_queryData; % Runs the script that queries data from the devices. Stores the results in the [dataCollection] Variable
                 script_failSafes; %Run FailSafe Checks
+                script_checkGUICmd; % Check to see if there are any commands from GUI
                 % if limits are reached, break loop
-                if errorCode == 1
+                if errorCode == 1 || strcmpi(testStatus, "stop")
+                    script_idle;
                     break;
                 end
                 
-                if(finalSOC < initialSOC)
-                    if battSOC <= finalSOC
-                        break;
-                    end
-                elseif (finalSOC > initialSOC)
-                    if battSOC >= finalSOC
-                        break;
-                    end
-                else
-                    warning('Initial and Final SOC values are Equal.');
-                    break;
-                end
+                %% Triggers (GPIO from LabJack)
+                script_triggerDigitalPins;
                 
                 counter = counter + 1;
             end % End of IF toc
         end % While Loop
         
-        % CC Mode
-    elseif strcmpi(mode, 'cc')
-        counter = 1; %In order for the sampling of data from profile
-        % to be based on the number of samples
-        timerPrev(1) = toc;
+        if ~isempty(testSettings.saveName)
+            save(testSettings.saveDir + "\" + testSettings.saveName + ".mat", 'battTS');
+        end
         
-        % While Loop: Runs through the currProfile based on the sampling
-        while counter <= length(profileTS.Time)
-            %% Commands
-            % Evaluates and changes commands based on the timing provided on the
-            % profile
-            if toc >= profileTS.Time(counter)
-                timerPrev(2) = toc;
-                % Evaluator
-                % If the next current value is positive and the battery is
-                % currently charging, discharge the battery or else
-                % charge the battery (charging is simulating regen braking
-                if (round(profileTS.Data(counter),1) < 0)
-                    chargeReq = false; % Make next command a discharge command
-                    curr = profileTS.Data(counter);
-                    disp("curr = " + num2str(curr));
-                elseif (round(profileTS.Data(counter),1) > 0)
-                    chargeReq = true; % Make next command a charge command
-                    curr = profileTS.Data(counter);
-                    disp("curr = " + num2str(curr));
-                else
-                    chargeReq = 3; % Not charging or discharging
-                end
-                
-                % Charge Command
-                if (chargeReq == true)
-                    script_charge; % Run Script to begin/update charging process
-                    % Discharge Command
-                elseif (chargeReq == false)
-                    script_discharge; % Run Script to begin/update discharging process
-                else
-                    script_idle; % Run Script
-                end
-                %             disp(battState);
-                
-                script_queryData; % Runs the script that queries data from the devices. Stores the results in the [dataCollection] Variable
-                script_failSafes; %Run FailSafe Checks
-                % if limits are reached, break loop
-                if errorCode == 1
-                    break;
-                end
-                
-                if(finalSOC < initialSOC)
-                    if battSOC <= finalSOC
-                        break;
-                    end
-                elseif (finalSOC > initialSOC)
-                    if battSOC >= finalSOC
-                        break;
-                    end
-                else
-                    warning('Initial and Final SOC values are Equal.');
-                    break;
-                end
-                
-                counter = counter + 1;
-            end % End of IF toc
-        end % While Loop
+        save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+        
     end
     
-    battTS.Time = battTS.Time - battTS.Time(1);
-    if plotFigs == true
-        f = figure;
-        plot(battTS.Time, battTS.Data(:,5),battTS.Time, battTS.Data(:,6));
-        hold on;
-        plot(profileTS);
-        legend('battVolt','battCurr', 'profile');
-    end
-    
-     save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-    
-catch ME_func
+catch MEX
     script_resetDevices;
-    if errorCode ~= 2
-        rethrow(ME_func);
+    if caller == "cmdWindow"
+        rethrow(MEX);
+    else
+        send(errorQ, MEX)
     end
 end
+
 %% Teardown Section
 
 script_resetDevices; % Runs the resetDevices script
