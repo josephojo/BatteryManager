@@ -9,10 +9,13 @@ try
     % script_initializeDevices; % Initialized devices like Eload, PSU etc.
     script_initializeVariables; % Run Script to initialize common variables
     
-    adjCRate = 4;
+    adjCRate = 1;
     waitTime = 1800; % wait time for cool down periods in seconds
+    cycleSocTargets = [0.9, 0.1];
+    
     
     if ~exist('cellIDs', 'var') || isempty(cellIDs)
+        % cellIDs should only be one cell
         cellIDs = "AB1"; % ID in Cell Part Number (e.g BAT11-FEP-AA1). Defined again in initializeVariables
     end
     
@@ -20,11 +23,12 @@ try
         currFilePath = mfilename('fullpath');
         % Seperates the path directory and the filename
         [path, ~, ~] = fileparts(currFilePath);
-
-        testSettings.saveDir = extractBetween(path,"",...
-            "00BattManager","Boundaries","inclusive");
+        
+        str = extractBetween(path,"",...
+            "Projects","Boundaries","inclusive");
+        testSettings.saveDir = str + "\06_SeriesPackHCFC\SW\02_CtrlSW\BatteryModels\00ECTM";
         caller = "cmdWindow";
-        testSettings.saveName   = "DYNData_" + cellIDs + ".mat";   
+        testSettings.saveName   = "DYNData_" + cellIDs + ".mat";
         testSettings.purpose    = "To use in identifying the RC parameters for an ECM model";
         testSettings.tempChnls  = [9, 10];
         testSettings.trigPins = []; % Fin in every pin that should be triggered
@@ -40,188 +44,241 @@ try
     %     data collected to be used as the start time for the next data
     %     collection.
     
-   
-    
-    
-    
-    % This is the column where the Ah in resultCollection.Data (without time)
-    % is stored.
-    AhCapInd = [4]; 
-    
     ahCounts = [];
-    
-    modes2Run = ["cy"]; % "cc", "cy",
-       
-    iterations = 1;
+        
     prev3 = toc(testTimer);
     saveIntvl = 1; % Interval to save data (hr)
     saveInd = 1; %Initial value for the number of intermittent Saves
     
-    for iter = 1:iterations
-        %% DriveCycleMode
-        [isMem, ind] = ismember("cy", modes2Run);
-        if isMem == true %strcmpi(mode, 'cc')
-            
-            % SOC to Adjust the current SOC
-            if strcmpi (cellConfig, 'parallel')
-                adjCurr = sum(batteryParam.ratedCapacity(cellIDs))*adjCRate; % X of rated Capacity
-            else
-                adjCurr = mean(batteryParam.ratedCapacity(cellIDs))*adjCRate; % X of rated Capacity
-            end
-            
-            cur = pwd;
-            cd(dataLocation)
-            if strcmpi (cellConfig, 'single')
-                searchCriteria = "002_" + cellIDs(1)+ "_CurrProfiles*";
-            else
-                searchCriteria = "002_" + num2str(numCells) + upper(cellConfig(1)) + ...
-                    batteryParam.chemistry(cellIDs(1))+ "_CurrProfiles*";
-            end
-            fName = dir(searchCriteria);
-            cd(cur)
-            
-            if strcmpi(batteryParam.chemistry(cellIDs(1)), "LFP")
-                cRate = 6;
-            else
-                cRate = 3;
-            end
-            
-            % Create Current profile if it does not currently exist
-            if isempty(fName)
-                multiProfileGen(sum(batteryParam.ratedCapacity(cellIDs))*cRate,...
-                    cellIDs, dataLocation, cellConfig, batteryParam)
-                cur = pwd;
-                cd(dataLocation)
-                fName = dir(searchCriteria);
-                cd(cur)
-            end
-            load(fName.name); % Loads CycleProfiles and others
-            
-            mode = modes2Run(ind);
-            %     cycleSocTargets = csvread('015cycleSocTargets.csv');
-            cycleSocTargets = [0.9, 0.1]; 
-            startProfileInd = find(cycleNames == profile2Run); 
-            endProfileInd = startProfileInd; % length(cycleProfiles);
-            
-            for i = 1:length(cycleSocTargets(:, 1))
-                initialSOC = cycleSocTargets(i,1);
-                targetSOC = cycleSocTargets(i,2);
-                for ii = startProfileInd:endProfileInd
-                    load(dataLocation + "007BatteryParam.mat"); % Load prevSOC variable for use in this script since the variable isn't updated here (only in the functions)
-                    prevSOC = mean(batteryParam.soc(cellIDs));
-                    
-                    %% Adjusting current SOC to initial SOC
-                    if(prevSOC >= initialSOC)
-                        msg = newline + "Iter: " + num2str(iter) + ...
-                            " | Profile # " + num2str(ii) + newline +...
-                            "Adjusting Initial SOC (Cycle): Discharging to " +...
-                            num2str(initialSOC * 100) + "%. Current SOC = " +...
-                            num2str(prevSOC*100) + "%";
-                        if strcmpi(caller, "gui")
-                            send(randQ, msg);
-                        else
-                            disp(msg);
-                        end
-                        out = dischargeToSOC(initialSOC, adjCurr, 'cellIDs', cellIDs, 'testSettings', testSettings);
-                        resultCollection{end+1} = [out.Time + prevSeqTime, out.Data];
-                        prevSeqTime = prevSeqTime + out.Time(end);
-                    else
-                        msg = newline + "Iter: " + num2str(iter) + ...
-                            " | Profile # " + num2str(ii) + newline +...
-                            "Adjusting Initial SOC (Cycle): Charging to " + ...
-                            num2str(initialSOC*100) + "%. Current SOC = " + ...
-                            num2str(prevSOC*100) + "%";
-                        if strcmpi(caller, "gui")
-                            send(randQ, msg);
-                        else
-                            disp(msg);
-                        end
-                        
-                        out = chargeToSOC(initialSOC, adjCurr, 'cellIDs', cellIDs, 'testSettings', testSettings);
-                        resultCollection{end+1} = [out.Time + prevSeqTime, out.Data];
-                        prevSeqTime = prevSeqTime + out.Time(end);
-                    end
-                    
-                    %% Cool Down After Adjusting SOC
-                    msg = newline + "Beginning Cool Down after Adj. SOC. " + ...
-                        "Waiting for " + waitTime + " seconds";
-                        if strcmpi(caller, "gui")
-                            send(randQ, msg);
-                        else
-                            disp(msg);
-                        end
-                    out = waitTillTime(waitTime, 'cellIDs', cellIDs, 'testSettings', testSettings);
-                    resultCollection{end+1} = [out.Time + prevSeqTime, out.Data];
-                    prevSeqTime = prevSeqTime + out.Time(end);
-
-                    
-                    %% Running Profile
-                    msg = newline + "Iter: " + num2str(iter) + ...
-                        " | Running Profile # " + ii + " : " +...
-                        cycleNames(ii) + " From: " + num2str(initialSOC)+...
-                        " To: "+ num2str(targetSOC);
-                    if strcmpi(caller, "gui")
-                        send(randQ, msg);
-                    else
-                        disp(msg);
-                    end
-
-                    [out, cells_lastTest] = runProfileToSOC(cycleProfiles(ii), targetSOC, [],...
-                        'cellIDs', cellIDs, 'testSettings', testSettings);
-                    resultCollection{end+1} = [out.Time + prevSeqTime, out.Data];
-                    prevSeqTime = prevSeqTime + out.Time(end);
-
-                    
-                    %% Cool Down After Profile
-                    msg = newline + "Beginning Cool Down after Adj. SOC. " + ...
-                        "Waiting for " + waitTime + " seconds";
-                        if strcmpi(caller, "gui")
-                            send(randQ, msg);
-                        else
-                            disp(msg);
-                        end
-                    out = waitTillTime(waitTime, 'cellIDs', cellIDs);
-
-                    resultCollection{end+1} = [out.Time + prevSeqTime, out.Data];
-                    prevSeqTime = prevSeqTime + out.Time(end);
-                    
-%                     disp("Data Stored in Collection." + newline);
-                end
-            end
+    %% Script 1 : Run Profile from 90% to 10% to prevent over and under voltage
+    
+    % ############### SOC to Adjust the current SOC ###############
+    if strcmpi (cellConfig, 'parallel')
+        adjCurr = sum(batteryParam.ratedCapacity(cellIDs))*adjCRate; % X of rated Capacity
+    else
+        adjCurr = mean(batteryParam.ratedCapacity(cellIDs))*adjCRate; % X of rated Capacity
+    end
+    
+    cur = pwd;
+    cd(dataLocation)
+    if strcmpi (cellConfig, 'single')
+        searchCriteria = "002_" + cellIDs(1)+ "_CurrProfiles*";
+    else
+        searchCriteria = "002_" + num2str(numCells) + upper(cellConfig(1)) + ...
+            batteryParam.chemistry(cellIDs(1))+ "_CurrProfiles*";
+    end
+    fName = dir(searchCriteria);
+    cd(cur)
+    
+    % Create Current profile if it does not currently exist
+    if isempty(fName)
+        if strcmpi(cellConfig, 'parallel')
+            maxCurr = sum(batteryParam.maxCurr(cellIDs));
+        else
+            maxCurr = batteryParam.maxCurr(cellIDs);
+        end
+        multiProfileGen(maxCurr,...
+            cellIDs, dataLocation, cellConfig, batteryParam)
+        cur = pwd;
+        cd(dataLocation)
+        fName = dir(searchCriteria);
+        cd(cur)
+    end
+    load(fName.name); % Loads CycleProfiles and others
+    
+    startProfileInd = find(cycleNames == profile2Run);
+    endProfileInd = startProfileInd; % length(cycleProfiles);
+    
+    initialSOC = cycleSocTargets(1,1);
+    targetSOC = cycleSocTargets(1,2);
+    
+    ii = startProfileInd:endProfileInd;
+    load(dataLocation + "007BatteryParam.mat"); % Load prevSOC variable for use in this script since the variable isn't updated here (only in the functions)
+    prevSOC = mean(batteryParam.soc(cellIDs));
+    
+    % ############### Cool Down Before Adjusting SOC ###############
+    msg = newline + "Beginning to Cool Down Before Adj. SOC. " + ...
+        "Waiting for " + waitTime + " seconds";
+    if strcmpi(caller, "gui")
+        send(randQ, msg);
+    else
+        disp(msg);
+    end
+    [out1_wait, cell1_wait] = waitTillTime(waitTime, 'cellIDs', cellIDs,...
+        'testSettings', testSettings);
+%     resultCollection{end+1} = [out1_wait1.Time + prevSeqTime, out1_wait1.Data];
+%     prevSeqTime = prevSeqTime + out1_wait1.Time(end);
+    
+    % ############### Adjusting current SOC to initial SOC ###############
+    if(prevSOC >= initialSOC)
+        msg = newline + "Script 1." + newline + ...
+            "Profile # " + num2str(ii) + newline +...
+            "Adjusting Initial SOC (Cycle): Discharging to " +...
+            num2str(initialSOC * 100) + "%. Current SOC = " +...
+            num2str(prevSOC*100) + "%";
+        if strcmpi(caller, "gui")
+            send(randQ, msg);
+        else
+            disp(msg);
+        end
+        [out1_adj, cells_adj] = dischargeToSOC(initialSOC, adjCurr, 'cellIDs',...
+            cellIDs, 'testSettings', testSettings);
+        
+    else
+         msg = newline + "Script 1." + newline + ...
+         "Profile # " + num2str(ii) + newline +...
+            "Adjusting Initial SOC (Cycle): Charging to " + ...
+            num2str(initialSOC*100) + "%. Current SOC = " + ...
+            num2str(prevSOC*100) + "%";
+        if strcmpi(caller, "gui")
+            send(randQ, msg);
+        else
+            disp(msg);
         end
         
+        [out1_adj, cells_adj] = chargeToSOC(initialSOC, adjCurr, 'cellIDs', cellIDs,...
+            'testSettings', testSettings);
+        %                 resultCollection{end+1} = [out1_adj.Time + prevSeqTime, out1_adj.Data];
+        %                 prevSeqTime = prevSeqTime + out1_adj.Time(end);
     end
-    %% Finishing Touches
     
+    
+    % ############### Running Profile ###############
+    msg = newline + "Script 1." + newline + ...
+        "Running Profile # " + ii + " : " +...
+        cycleNames(ii) + " From: " + num2str(initialSOC)+...
+        " To: "+ num2str(targetSOC);
+    if strcmpi(caller, "gui")
+        send(randQ, msg);
+    else
+        disp(msg);
+    end
+    
+    [out1, cells1] = runProfileToSOC(cycleProfiles(ii), targetSOC, [],...
+        'cellIDs', cellIDs, 'testSettings', testSettings);
+%     resultCollection{end+1} = [out1.Time + prevSeqTime, out1.Data];
+%     prevSeqTime = prevSeqTime + out1.Time(end);
+    
+    
+    %% Script 2: Get Cell Voltage to Vmin
+    % Cool Down After Profile
+    msg = newline + "Beginning to Cool Down after Adj. SOC. " + ...
+        "Waiting for " + waitTime + " seconds";
+    if strcmpi(caller, "gui")
+        send(randQ, msg);
+    else
+        disp(msg);
+    end
+    [out2_wait, cell2_wait] = waitTillTime(waitTime, 'cellIDs', cellIDs,...
+            cellIDs, 'testSettings', testSettings);
+    
+%     resultCollection{end+1} = [out.Time + prevSeqTime, out.Data];
+%     prevSeqTime = prevSeqTime + out.Time(end);
+    
+
+    msg = newline + "Script 2." + newline + ...
+        "Leveling battery voltage to discharged Voltage. ";
+    if strcmpi(caller, "gui")
+        send(randQ, msg);
+    else
+        disp(msg);
+    end
+    
+    load(dataLocation + "007BatteryParam.mat"); % Load prevSOC variable for use in this script since the variable isn't updated here (only in the functions)
+    volt_Col = 1; % Assuming the voltage is in the first column
+    volt = out_wait2.data(end, volt_Col); % First column
+    dischargedVolt = batteryParam.dischargedVolt(cellIDs);
+    
+    if strcmpi (cellConfig, 'parallel')
+        curr = sum(batteryParam.ratedCapacity(cellIDs))/30; % X of rated Capacity
+    else
+        curr = mean(batteryParam.ratedCapacity(cellIDs))/30; % X of rated Capacity
+    end
+
+    % if cell is undervoltaged, charge back up or discharge if vice versa
+    if max(volt > dischargedVolt) % Max is here incase cellIDs contains more than one cellID
+       [out2, cells2] = dischargeToVolt(dischargedVolt, curr, 'cellIDs', cellIDs, ...
+           'testSettings', testSettings);
+    elseif max(volt < dischargedVolt)
+        [out2, cells2] = chargeToVolt(dischargedVolt, curr, 'cellIDs', cellIDs, ...
+           'testSettings', testSettings);
+    end
+    
+    % Can add a runProfile test based on a dither current profile
+        
+    %% Script 3: Fully Charge Cell
+    msg = newline + "Script 3." + newline + ...
+        "Fully Charging battery. ";
+    if strcmpi(caller, "gui")
+        send(randQ, msg);
+    else
+        disp(msg);
+    end
+    [out3, cells3] = chargeToSOC(1, adjCurr, 'cellIDs', cellIDs,...
+            'testSettings', testSettings);
+        
+    % Can add a runProfile test based on a dither current profile
+
+    
+    %% Finishing Touches
+    % Save Data for Script 1                        
+    DYNData.script1.time =    [ out1_wait.time, ...
+                                out1_adj.time, ...
+                                out1.time ];
+    
+    DYNData.script1.voltage = [ cell1_wait.volt(cellIDs), ...
+                                cells_adj.volt(cellIDs), ...
+                                cells1.volt(cellIDs) ];
+                            
+    DYNData.script1.current = [ cell1_wait.curr(cellIDs), ...
+                                cells_adj.curr(cellIDs), ...
+                                cells1.curr(cellIDs) ];
+                            
+    DYNData.script1.ahCap = [ cell1_wait.AhCap(cellIDs), ...
+                                cells_adj.AhCap(cellIDs), ...
+                                cells1.AhCap(cellIDs) ];
+                            
+    % Save Data for Script 2                        
+    DYNData.script2.time =    [ out2_wait.time, ...
+                                out2.time  ];
+    
+    DYNData.script2.voltage = [ cell2_wait.volt(cellIDs), ...
+                                cells2.volt(cellIDs)  ];
+                            
+    DYNData.script2.current = [ cell2_wait.curr(cellIDs), ...
+                                cells2.curr(cellIDs) ];
+                            
+    DYNData.script2.ahCap =   [ cell2_wait.AhCap(cellIDs), ...
+                                cells2.AhCap(cellIDs) ];
+    
+                            
+    % Save Data for Script 2                        
+    DYNData.script3.time =     out3.time ;
+    
+    DYNData.script3.voltage =  cells3.volt(cellIDs) ;
+                            
+    DYNData.script3.current =  cells3.curr(cellIDs) ;
+                            
+    DYNData.script3.ahCap =    cells3.AhCap(cellIDs);
+                            
+                            
     % Don't save battery param here, it updates the
     % good values stored by "runProfile"
-        
-    DateCompleted = string(datestr(now,'yymmdd'));
     
-    Filename = testSettings.saveName + "_" + DateCompleted;
-        
+%     DateCompleted = string(datestr(now,'yymmdd'));
+    
+    Filename = testSettings.saveName; % + "_" + DateCompleted;
+    
     saveName = Filename + ".mat";
     
-    save(testSettings.saveDir + "02RawNNData\" + saveName , 'resultCollection', 'ahCounts');
-    
-    script_postProcessResCollection;
-    
-    % Remove the AhCap columns
-%     resultCollection_withAhCap = resultCollection;
-    resultCollection(:, [5:8, 11]) = [];
-    
-    save(saveLocation + "01NNData\" + saveName , 'resultCollection');
-%     if ~isempty(ahCounts)
-%         save(saveLocation + "02RawNNData\AhCounts_" + saveName , 'ahCounts');
-%     end
+    save(testSettings.saveDir + "\" + saveName , 'DYNData');
         
-    cellAhCap = cells_lastTest.AhCap(cellIDs);
-
+        
     % Update Experiment Logs File
-    updateExpLogs(fileName, testSettings.purpose, cellIDs, cellAhCap, batteryParam);
-
+    updateExpLogs(fileName, testSettings.purpose, cellIDs, batteryParam);
     
-%     disp("Program Finished");
+    
+    %     disp("Program Finished");
     
 catch ME
     sscript_resetDevices;

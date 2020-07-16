@@ -1,4 +1,4 @@
-function battTS = waitTillTemp(tempSrc, varargin)
+function [battTS, cells] = waitTillTemp(tempSrc, varargin)
 %waitTillTemp Pauses the program from running until the surf Temp decreases
 %   Halts the program while surf or Core Temp decreases or they both equal
 %   each other
