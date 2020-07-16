@@ -1,4 +1,4 @@
-function battTS = chargeToVolt(targVolt, chargeCurr, varargin)
+function [battTS, cells] = chargeToVolt(targVolt, chargeCurr, varargin)
 %chargeToVolt Charges to the specified Voltage based on the charge current
 %specified
 %
@@ -172,9 +172,9 @@ try
     % Save data
     if tElasped > 5 % errorCode == 0 &&
         if numCells > 1
-            save(dataLocation + "005_" + cellConfig + "_ChargeTo" +num2str(round(battSOC*100,0))+ "%.mat", 'battTS', 'cellIDs');
+            save(dataLocation + "005_" + cellConfig + "_ChargeToVolt.mat", 'battTS', 'cellIDs');
         else
-            save(dataLocation + "005_" + cellIDs(1) + "_ChargeTo" +num2str(round(battSOC*100,0))+ "%.mat", 'battTS');
+            save(dataLocation + "005_" + cellIDs(1) + "_ChargeToVolt.mat", 'battTS');
         end
         % Save Battery Parameters
         save(dataLocation + "007BatteryParam.mat", 'batteryParam');

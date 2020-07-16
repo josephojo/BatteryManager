@@ -1,4 +1,4 @@
-function battTS = dischargeToVolt(targVolt, dischargeCurr, varargin)
+function [battTS, cells] = dischargeToVolt(targVolt, dischargeCurr, varargin)
 %dischargeToVolt Discharges to the specified Voltage based on the charge current
 %specified
 %

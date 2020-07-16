@@ -1,4 +1,4 @@
-function battTS = chargeToTime(targTime, chargeCurr, varargin)
+function [battTS, cells] = chargeToTime(targTime, chargeCurr, varargin)
 %chargeToTime Charges for the specified time based on the charge current
 %specified
 %

@@ -1,4 +1,4 @@
-function battTS = runProfileToSOC(profileTS, targetSOC, iterations, varargin)
+function [battTS, cells] = runProfileToSOC(profileTS, targetSOC, iterations, varargin)
 %RUNPROFILE Runs profile as long as targetSOC is not reached.
 %   Runs profile as long as targetSOC is not reached or as a secondary option,
 %    unless the number of iteration condition is met.
@@ -151,7 +151,7 @@ try
     script_initializeDevices; % Initialized devices like Eload, PSU etc.
     script_initializeVariables; % Run Script to initialize common variables
     
-    readPeriod = 0.5;
+    readPeriod = 0.3;
     writePeriod = readPeriod; % Period to resample the input current profile
     
     % Resamples the input profile to the interval given in readPeriod

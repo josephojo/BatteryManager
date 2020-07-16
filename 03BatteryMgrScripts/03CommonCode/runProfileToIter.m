@@ -1,4 +1,4 @@
-function battTS = runProfileToIter(profileTS, iterations, varargin)
+function [battTS, cells] = runProfileToIter(profileTS, iterations, varargin)
 %RUNPROFILETOITER Runs profile for the number of iterations specified.
 %   Runs profile for the number of iterations specified.
 %   Inputs:

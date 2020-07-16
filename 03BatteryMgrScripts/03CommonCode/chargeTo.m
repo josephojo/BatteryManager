@@ -1,4 +1,4 @@
-function battTS = chargeTo(targSOC, chargeCurr, varargin)
+function [battTS, cells] = chargeTo(targSOC, chargeCurr, varargin)
 %chargeTo Charges to the specified SOC based on the charge current
 %specified
 %

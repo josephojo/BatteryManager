@@ -1,4 +1,4 @@
-function battTS = dischargeToTime(targTime, dischargeCurr, varargin)
+function [battTS, cells] = dischargeToTime(targTime, dischargeCurr, varargin)
 %dischargeTo Discharges to the specified SOC based on the previous SOC
 %
 %   Inputs: 

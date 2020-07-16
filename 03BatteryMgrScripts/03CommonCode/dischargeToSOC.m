@@ -1,4 +1,4 @@
-function battTS = dischargeToSOC(targSOC, dischargeCurr, varargin)
+function [battTS, cells] = dischargeToSOC(targSOC, dischargeCurr, varargin)
 %dischargeToSOC Discharges to the specified SOC based on the current provided
 %
 %   Inputs: 

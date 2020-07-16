@@ -8,9 +8,9 @@ script_initializeDevices; % Initialized devices like Eload, PSU etc.
 script_initializeVariables; % Run Script to initialize common variables
 
 if strcmpi (cellConfig, 'parallel')
-    curr = -(sum(batteryParam.ratedCapacity(cellIDs))*cRate); % X of rated Capacity
+    curr = -(sum(batteryParam.ratedCapacity(cellIDs))*cRate_dchrg); % X of rated Capacity
 else
-    curr = -batteryParam.ratedCapacity(cellIDs(1))*cRate; % X of rated Capacity
+    curr = -batteryParam.ratedCapacity(cellIDs(1))*cRate_dchrg; % X of rated Capacity
 end
 
 trackSOCFS = false;
@@ -54,7 +54,7 @@ if tElasped > 5 % errorCode == 0 &&
     batteryParam.soc(cellID) = 0; % 0% DisCharged
     % Save Battery Parameters
     save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-    disp("dischargeToEmpty Completed. And Data Saved.")
+%     disp("dischargeToEmpty Completed. And Data Saved.")
 end
 
 
