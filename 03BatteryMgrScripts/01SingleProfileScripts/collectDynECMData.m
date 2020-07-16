@@ -25,10 +25,10 @@ try
         [path, ~, ~] = fileparts(currFilePath);
         
         str = extractBetween(path,"",...
-            "Projects","Boundaries","inclusive");
-        testSettings.saveDir = str + "\06_SeriesPackHCFC\SW\02_CtrlSW\BatteryModels\00ECTM";
+            "03DataGen","Boundaries","inclusive");
+        testSettings.saveDir = str + "\01CommonDataForBattery";
         caller = "cmdWindow";
-        testSettings.saveName   = "DYNData_" + cellIDs + ".mat";
+        testSettings.saveName   = "01DYNData_" + cellIDs + ".mat";
         testSettings.purpose    = "To use in identifying the RC parameters for an ECM model";
         testSettings.tempChnls  = [9, 10];
         testSettings.trigPins = []; % Fin in every pin that should be triggered
@@ -281,10 +281,5 @@ try
     %     disp("Program Finished");
     
 catch ME
-    sscript_resetDevices;
-    if caller == "cmdWindow"
-        rethrow(MEX);
-    else
-        send(errorQ, MEX)
-    end
+    script_handleException;
 end
