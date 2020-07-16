@@ -1,5 +1,6 @@
 function battTS = AhCounter(varargin)
 %AhCounter Counts the mount of capacity left in a cell or pack
+% ahCount = AhCounter('cRates', [0.3, 0.2], 'cellIDs', "AB1");
 %
 %   Inputs: 
 %       varargin   
@@ -103,7 +104,7 @@ dataLocation = newStr + "\01CommonDataForBattery\";
 try 
     % Load Table with cell information
     load(dataLocation + "007BatteryParam.mat", 'batteryParam')
-    cap = batteryParam.capacity(cellID); % Ah
+    cap = batteryParam.capacity(cellIDs); % Ah
     
     disp("Counting Capacity ...");
     
@@ -120,16 +121,16 @@ try
         testSettings.cellConfig = 'single';
     end
     
-    % Step 1: Bring the cell  to Full Capacity
-    battTS_chrg = chargeToSOC(1, cRate_chrg*cap, 'cellIDs', cellIDs, 'testSettings', testSettings);
-
-    % Step 2: Let the battery rest
-    battTS_Wait_Chrg = waitTillTime(waitTime, 'cellIDs', cellIDs, 'testSettings', testSettings);
-    battTS_temp = appendBattTS2TS(battTS_chrg, battTS_Wait_Chrg);
+%     % Step 1: Bring the cell  to Full Capacity
+%     battTS_chrg = chargeToSOC(1, cRate_chrg*cap, 'cellIDs', cellIDs, 'testSettings', testSettings);
+% 
+%     % Step 2: Let the battery rest
+%     battTS_Wait_Chrg = waitTillTime(waitTime, 'cellIDs', cellIDs, 'testSettings', testSettings);
+%     battTS_temp = appendBattTS2TS(battTS_chrg, battTS_Wait_Chrg);
 
     % Step 3: Discharge to empty
     dischargeToEmpty; % there is an internal variable "battTS" in script
-    battTS = appendBattTS2TS(battTS_temp, battTS);
+%     battTS = appendBattTS2TS(battTS_temp, battTS);
 
     
     % Plot the data if true
@@ -165,12 +166,7 @@ try
     end
     
 catch MEX
-    script_resetDevices;
-    if caller == "cmdWindow"
-        rethrow(MEX);
-    else
-        send(errorQ, MEX)
-    end
+    script_handleException;
 end
 
 % Teardown
