@@ -161,8 +161,8 @@ if ismember("SOC", testSettings.data2Record)
     timerPrev(4) = tmpT; % Update Current time to previous
     
     if ismember("Cap", testSettings.data2Record)
-        cells.AhCap(cellIDs) = cells.AhCap(cellIDs) + (abs(cells.curr(cellIDs)) * (deltaT/3600));
-        AhCap = AhCap + (abs(battCurr) * (deltaT/3600));
+        cells.AhCap(cellIDs) = cells.AhCap(cellIDs) + (cells.curr(cellIDs) * (deltaT/3600));
+        AhCap = AhCap + (battCurr * (deltaT/3600));
     end
     cells.SOC(cellIDs) = estimateSOC(cells.curr(cellIDs),...
         deltaT, cells.prevSOC(cellIDs), 'Q', cells.coulomb(cellIDs)); % Leave right after cell curr update since it is used in SOC estimation

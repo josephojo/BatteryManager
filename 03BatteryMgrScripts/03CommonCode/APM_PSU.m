@@ -505,14 +505,14 @@ classdef APM_PSU < handle
             
             write(obj.SerialObj, 'OUTP 1', 'char');
             
-            wait(0.1)
-            data = isConnected(obj);
+%             wait(0.1)
+%             data = isConnected(obj);
             
-            if data == 1
+%             if data == 1
                 reply = "Terminal Connected";
-            else
-                reply = "Terminal NOT Connected";
-            end
+%             else
+%                 reply = "Terminal NOT Connected";
+%             end
         end%End of ConnectPSU
         
         function reply = disconnect(obj)
@@ -521,14 +521,14 @@ classdef APM_PSU < handle
             
             write(obj.SerialObj, 'OUTP 0', 'char');
             
-            wait(0.1)
-            data = isConnected(obj);
+%             wait(0.1)
+%             data = isConnected(obj);
             
-            if data == 0
+%             if data == 0
                 reply = "Terminal Disconnected";
-            else
-                reply = "Terminal NOT Disconnected";
-            end
+%             else
+%                 reply = "Terminal NOT Disconnected";
+%             end
         end %End of DisconnectPSU
         
         function data = isConnected(obj)

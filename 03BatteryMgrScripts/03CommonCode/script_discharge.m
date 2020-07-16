@@ -8,11 +8,12 @@ if ~strcmpi(battState, "discharging")
     psu.disconnect();
     eload.Disconnect();
         
-    relayState = false; %true; % Relay is in the Normally Closed Position
-    script_switchRelays;
-
     eload.SetLev_CC(abs(round(curr,3))); %curr is negative because
     eload.Connect();
+
+    relayState = false; %true; % Place Relay is in the Normally Closed Position
+    script_switchRelays;
+
 else
     eload.SetLev_CC(abs(round(curr,3)));
 end

@@ -28,19 +28,23 @@ for cellID = cellIDs
             error = sprintf("Battery VOLTAGE for " + cellID + " is Less than Limit: %.2f V", cells.volt(cellID));
             warning(error);
             errorCode = 1;
+            testStatus = "stop";
         end
     elseif cells.volt(cellID) >= batteryParam.maxVolt(cellID)
         error = sprintf("Battery VOLTAGE for " + cellID + " is Greater than Limit: %.2f V", cells.volt(cellID));
         warning(error);
         errorCode = 1;
+        testStatus = "stop";
     elseif cells.curr(cellID) <= batteryParam.minCurr(cellID)
         error = sprintf("Battery CURRENT for " + cellID + " is Less than Limit: %.2f V", battCurr);
         warning(error);
         errorCode = 1;
+        testStatus = "stop";
     elseif cells.curr(cellID) >= batteryParam.maxCurr(cellID)
         error = sprintf("Battery CURRENT for " + cellID + " is Greater than Limit: %.2f V", battCurr);
         warning(error);
         errorCode = 1;
+        testStatus = "stop";
     elseif cells.SOC(cellID) > 1.05 && trackSOCFS == true
         warning("Battery SOC for " + cellID + " is Greater than 100%%:  %.2f%%",cells.SOC(cellID)*100);
     elseif cells.SOC(cellID) <= -0.005  && trackSOCFS == true
