@@ -1,4 +1,4 @@
-function battTS = waitTillTime(targTime, varargin)
+function [battTS, cells] = waitTillTime(targTime, varargin)
 %waitTillTime Idles the battery (pack) while waiting until the target time
 %is up
 %
