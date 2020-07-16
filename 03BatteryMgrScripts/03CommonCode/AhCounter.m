@@ -1,4 +1,4 @@
-function battTS_temp = AhCounter(varargin)
+function battTS = AhCounter(varargin)
 %AhCounter Counts the mount of capacity left in a cell or pack
 %
 %   Inputs: 
