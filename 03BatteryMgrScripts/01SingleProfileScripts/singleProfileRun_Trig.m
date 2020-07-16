@@ -193,15 +193,14 @@ try
             fName = dir(searchCriteria);
             cd(cur)
             
-            if strcmpi(batteryParam.chemistry(cellIDs(1)), "LFP")
-                cRate = 6;
-            else
-                cRate = 3;
-            end
-            
             % Create Current profile if it does not currently exist
             if isempty(fName)
-                multiProfileGen(sum(batteryParam.ratedCapacity(cellIDs))*cRate,...
+                if strcmpi(cellConfig, 'parallel')
+                    maxCurr = sum(batteryParam.maxCurr(cellIDs));
+                else
+                    maxCurr = batteryParam.maxCurr(cellIDs);
+                end
+                multiProfileGen(maxCurr,...
                     cellIDs, dataLocation, cellConfig, batteryParam)
                 cur = pwd;
                 cd(dataLocation)
@@ -328,10 +327,8 @@ try
 %         save(saveLocation + "02RawNNData\AhCounts_" + saveName , 'ahCounts');
 %     end
         
-    cellAhCap = cells_lastTest.AhCap(cellIDs);
-
     % Update Experiment Logs File
-    updateExpLogs(fileName, testSettings.purpose, cellIDs, cellAhCap, batteryParam);
+    updateExpLogs(fileName, testSettings.purpose, cellIDs, batteryParam);
 
     
 %     disp("Program Finished");

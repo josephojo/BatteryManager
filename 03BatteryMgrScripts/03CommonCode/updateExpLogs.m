@@ -1,4 +1,4 @@
-function updateExpLogs(Filename, Purpose, cellIDs, capacityLeft, batteryParam)
+function updateExpLogs(Filename, Purpose, cellIDs, batteryParam)
 % updateExpLogs Update Experiment Logs File
 %%
 currFilePath = mfilename('fullpath');
@@ -16,6 +16,7 @@ TimeCompleted = string(datestr(now,'HHMM'));
 T = readtable(saveLocation + "ExperimentLogs.xlsx");
 
 BatteryChem = batteryParam.chemistry(cellIDs(1));
+capacityLeft = batteryParam.capacity(cellIDs);
 
 numCells = length(cellIDs);
 
