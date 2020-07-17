@@ -1,21 +1,20 @@
 
-% If the test time so far is more than 60 seconds worth, back up data
-% so as to avoid data loss
-if tElasped > 60
-    if exists('battTS', 'var')
+% Check if data is available to save in order to avoid data loss
+if exist('battTS', 'var') && ~isempty(battTS.time)
+    if battTS.time(end) > 60
         save(dataLocation + "script_DataBackup.mat", 'battTS', '-append');
     end
-    if exists('ahCounts', 'var')
-        save(dataLocation + "script_DataBackup.mat", 'ahCounts', '-append');
-    end
-    if exists('resultCollection', 'var')
-        save(dataLocation + "script_DataBackup.mat", 'resultCollection', '-append');
-    end
+end
+if exist('ahCounts', 'var') && ~isempty(ahCounts)
+    save(dataLocation + "script_DataBackup.mat", 'ahCounts', '-append');
+end
+if exist('resultCollection', 'var') && ~isempty(resultCollection)
+    save(dataLocation + "script_DataBackup.mat", 'resultCollection', '-append');
 end
     
 script_resetDevices;
 if caller == "cmdWindow"
-    rethrow(MEX);
+    rethrow(ME);
 else
-    send(errorQ, MEX)
+    send(errorQ, ME)
 end

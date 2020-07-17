@@ -6,18 +6,16 @@
 
 try
     % % Initializations
-    % script_initializeDevices; % Initialized devices like Eload, PSU etc.
-    script_initializeVariables; % Run Script to initialize common variables
     
     adjCRate = 1;
     waitTime = 1800; % wait time for cool down periods in seconds
     cycleSocTargets = [0.9, 0.1];
     
-    
     if ~exist('cellIDs', 'var') || isempty(cellIDs)
         % cellIDs should only be one cell
         cellIDs = "AB1"; % ID in Cell Part Number (e.g BAT11-FEP-AA1). Defined again in initializeVariables
     end
+    
     
     if ~exist('testSettings', 'var') || isempty(testSettings)
         currFilePath = mfilename('fullpath');
@@ -28,6 +26,14 @@ try
             "03DataGen","Boundaries","inclusive");
         testSettings.saveDir = str + "\01CommonDataForBattery";
         caller = "cmdWindow";
+        
+        psuArgs = [];
+        eloadArgs = [];
+        tempModArgs = [];
+        balArgs = [];
+        sysMCUArgs = [];
+        stackArgs = [];
+        
         testSettings.saveName   = "01DYNData_" + cellIDs + ".mat";
         testSettings.purpose    = "To use in identifying the RC parameters for an ECM model";
         testSettings.tempChnls  = [9, 10];
@@ -37,15 +43,20 @@ try
         testSettings.trigDurations = {15}; % cell array of vectors. each vector corresponds to each the duration for each pin's trigger
     end
     
+    script_initializeVariables; % Run Script to initialize common variables
+    
     profile2Run = "CYC_UDDS";
+    
+    volt_ind = 1;
+    curr_ind = 2;
+    ah_ind = 4;
     
     resultCollection = {};
     prevSeqTime = 0; % As code runs, this variable stores the time of the last
     %     data collected to be used as the start time for the next data
     %     collection.
-    
-    ahCounts = [];
         
+    testTimer = tic;    
     prev3 = toc(testTimer);
     saveIntvl = 1; % Interval to save data (hr)
     saveInd = 1; %Initial value for the number of intermittent Saves
@@ -170,7 +181,7 @@ try
         disp(msg);
     end
     [out2_wait, cell2_wait] = waitTillTime(waitTime, 'cellIDs', cellIDs,...
-            cellIDs, 'testSettings', testSettings);
+            'testSettings', testSettings);
     
 %     resultCollection{end+1} = [out.Time + prevSeqTime, out.Data];
 %     prevSeqTime = prevSeqTime + out.Time(end);
@@ -185,11 +196,10 @@ try
     end
     
     load(dataLocation + "007BatteryParam.mat"); % Load prevSOC variable for use in this script since the variable isn't updated here (only in the functions)
-    volt_Col = 1; % Assuming the voltage is in the first column
-    volt = out_wait2.data(end, volt_Col); % First column
+    volt = cell2_wait.volt(end); % First column
     dischargedVolt = batteryParam.dischargedVolt(cellIDs);
     
-    if strcmpi (cellConfig, 'parallel')
+    if strcmpi(cellConfig, 'parallel')
         curr = sum(batteryParam.ratedCapacity(cellIDs))/30; % X of rated Capacity
     else
         curr = mean(batteryParam.ratedCapacity(cellIDs))/30; % X of rated Capacity
@@ -199,7 +209,7 @@ try
     if max(volt > dischargedVolt) % Max is here incase cellIDs contains more than one cellID
        [out2, cells2] = dischargeToVolt(dischargedVolt, curr, 'cellIDs', cellIDs, ...
            'testSettings', testSettings);
-    elseif max(volt < dischargedVolt)
+        elseif max(volt < dischargedVolt)
         [out2, cells2] = chargeToVolt(dischargedVolt, curr, 'cellIDs', cellIDs, ...
            'testSettings', testSettings);
     end
@@ -216,56 +226,53 @@ try
     end
     [out3, cells3] = chargeToSOC(1, adjCurr, 'cellIDs', cellIDs,...
             'testSettings', testSettings);
-        
     % Can add a runProfile test based on a dither current profile
 
     
     %% Finishing Touches
     % Save Data for Script 1                        
-    DYNData.script1.time =    [ out1_wait.time, ...
-                                out1_adj.time, ...
-                                out1.time ];
+    DYNData.script1.time =    [ out1_wait.time(:)', ...
+                                out1_adj.time(:)', ...
+                                out1.time(:)' ];
     
-    DYNData.script1.voltage = [ cell1_wait.volt(cellIDs), ...
-                                cells_adj.volt(cellIDs), ...
-                                cells1.volt(cellIDs) ];
+    DYNData.script1.voltage = [ out1_wait.data(:, volt_ind)', ...
+                                out1_adj.data(:, volt_ind)', ...
+                                out1.data(:, volt_ind)' ];
                             
-    DYNData.script1.current = [ cell1_wait.curr(cellIDs), ...
-                                cells_adj.curr(cellIDs), ...
-                                cells1.curr(cellIDs) ];
+    DYNData.script1.current = [ out1_wait.data(:, curr_ind)', ...
+                                out1_adj.data(:, curr_ind)', ...
+                                out1.data(:, curr_ind)' ];
                             
-    DYNData.script1.ahCap = [ cell1_wait.AhCap(cellIDs), ...
-                                cells_adj.AhCap(cellIDs), ...
-                                cells1.AhCap(cellIDs) ];
+    DYNData.script1.ahCap = [ out1_wait.data(:, ah_ind)', ...
+                                out1_adj.data(:, ah_ind)', ...
+                                out1.data(:, ah_ind)' ];
                             
     % Save Data for Script 2                        
-    DYNData.script2.time =    [ out2_wait.time, ...
-                                out2.time  ];
+    DYNData.script2.time =    [ out2_wait.time(:)', ...
+                                out2.time(:)'  ];
     
-    DYNData.script2.voltage = [ cell2_wait.volt(cellIDs), ...
-                                cells2.volt(cellIDs)  ];
+    DYNData.script2.voltage = [ out2_wait.data(:, volt_ind)', ...
+                                out2.data(:, volt_ind)'  ];
                             
-    DYNData.script2.current = [ cell2_wait.curr(cellIDs), ...
-                                cells2.curr(cellIDs) ];
+    DYNData.script2.current = [ out2_wait.data(:, curr_ind)', ...
+                                out2.data(:, curr_ind)' ];
                             
-    DYNData.script2.ahCap =   [ cell2_wait.AhCap(cellIDs), ...
-                                cells2.AhCap(cellIDs) ];
+    DYNData.script2.ahCap =   [ out2_wait.data(:, ah_ind)', ...
+                                out2.data(:, ah_ind)' ];
     
                             
-    % Save Data for Script 2                        
-    DYNData.script3.time =     out3.time ;
+    % Save Data for Script 3                        
+    DYNData.script3.time =     out3.time(:)' ;
     
-    DYNData.script3.voltage =  cells3.volt(cellIDs) ;
+    DYNData.script3.voltage =  out3.data(:, volt_ind)' ;
                             
-    DYNData.script3.current =  cells3.curr(cellIDs) ;
+    DYNData.script3.current =  out3.data(:, curr_ind)' ;
                             
-    DYNData.script3.ahCap =    cells3.AhCap(cellIDs);
+    DYNData.script3.ahCap =    out3.data(:, ah_ind)';
                             
                             
     % Don't save battery param here, it updates the
     % good values stored by "runProfile"
-    
-%     DateCompleted = string(datestr(now,'yymmdd'));
     
     Filename = testSettings.saveName; % + "_" + DateCompleted;
     

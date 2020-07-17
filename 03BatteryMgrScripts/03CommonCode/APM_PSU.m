@@ -521,7 +521,7 @@ classdef APM_PSU < handle
             
             write(obj.SerialObj, 'OUTP 0', 'char');
             
-%             wait(0.1)
+            wait(0.05);
 %             data = isConnected(obj);
             
 %             if data == 0

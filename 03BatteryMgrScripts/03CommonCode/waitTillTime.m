@@ -176,13 +176,8 @@ try
     
     disp("Waiting Done" + newline);
     
-catch MEX
-    script_resetDevices;
-    if caller == "cmdWindow"
-        rethrow(MEX);
-    else
-        send(errorQ, MEX)
-    end
+catch ME
+    script_handleException;
 end
 
 script_resetDevices;

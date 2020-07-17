@@ -214,7 +214,7 @@ try
                     end
                 end
                 %% Triggers (GPIO from LabJack)
-                script_TriggerDigitalPins;
+                script_triggerDigitalPins;
 
             else
                 batteryParam.soc(cellIDs) = 1; % 100% Charged

@@ -93,8 +93,8 @@ errorQ = param.errorQ;
 randQ = param.randQ;
 testSettings = param.testSettings;
 
-if iterations == 0 || isempty(iterations)
-   iterations = inf; 
+if isempty(iterations) || iterations == 0 
+   iterations = 1000; 
 end
 
 
