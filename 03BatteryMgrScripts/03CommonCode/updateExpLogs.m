@@ -3,10 +3,10 @@ function updateExpLogs(Filename, Purpose, cellIDs, batteryParam)
 %%
 currFilePath = mfilename('fullpath');
 % Seperates the path directory and the filename
-[path, ~, ~] = fileparts(currFilePath);
+[filePath, ~, ~] = fileparts(currFilePath);
 
-saveLocation = extractBetween(path,"",...
-    "00BattManager","Boundaries","inclusive");
+saveLocation = extractBetween(filePath,"",...
+    "00BattManager\","Boundaries","inclusive");
 
 %%
 

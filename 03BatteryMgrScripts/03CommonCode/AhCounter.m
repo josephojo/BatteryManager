@@ -161,7 +161,7 @@ try
         save(dataLocation + "007BatteryParam.mat", 'batteryParam');
         
         purpose = "To update capacity count for battery (pack).";
-        updateExpLogs(fileName, purpose, cellIDs, cellAhCap, batteryParam);
+        updateExpLogs(fileName, purpose, cellIDs, batteryParam);
 
     end
     
