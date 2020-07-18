@@ -16,6 +16,18 @@ try
         cellIDs = "AB1"; % ID in Cell Part Number (e.g BAT11-FEP-AA1). Defined again in initializeVariables
     end
     
+    if ~exist('caller', 'var')
+        caller = "cmdWindow";
+    end
+    
+    if ~exist('psuArgs', 'var')
+        psuArgs = [];
+        eloadArgs = [];
+        tempModArgs = [];
+        balArgs = [];
+        sysMCUArgs = [];
+        stackArgs = [];
+    end
     
     if ~exist('testSettings', 'var') || isempty(testSettings)
         currFilePath = mfilename('fullpath');
@@ -25,18 +37,10 @@ try
         str = extractBetween(path,"",...
             "03DataGen","Boundaries","inclusive");
         testSettings.saveDir = str + "\01CommonDataForBattery";
-        caller = "cmdWindow";
-        
-        psuArgs = [];
-        eloadArgs = [];
-        tempModArgs = [];
-        balArgs = [];
-        sysMCUArgs = [];
-        stackArgs = [];
         
         testSettings.saveName   = "01DYNData_" + cellIDs + ".mat";
         testSettings.purpose    = "To use in identifying the RC parameters for an ECM model";
-        testSettings.tempChnls  = [9, 10];
+        testSettings.tempChnls  = [9, 10, 11];
         testSettings.trigPins = []; % Fin in every pin that should be triggered
         testSettings.trigInvert = []; % Fill in 1 for every pin that is reverse polarity (needs a zero to turn on)
         testSettings.trigStartTimes = {[100]}; % cell array of vectors. each vector corresponds to each the start times for each pin
@@ -86,7 +90,7 @@ try
         if strcmpi(cellConfig, 'parallel')
             maxCurr = sum(batteryParam.maxCurr(cellIDs));
         else
-            maxCurr = batteryParam.maxCurr(cellIDs);
+            maxCurr = 8; % batteryParam.maxCurr(cellIDs);
         end
         multiProfileGen(maxCurr,...
             cellIDs, dataLocation, cellConfig, batteryParam)
@@ -117,6 +121,7 @@ try
     end
     [out1_wait, cell1_wait] = waitTillTime(waitTime, 'cellIDs', cellIDs,...
         'testSettings', testSettings);
+    battTS = out1_wait;
 %     resultCollection{end+1} = [out1_wait1.Time + prevSeqTime, out1_wait1.Data];
 %     prevSeqTime = prevSeqTime + out1_wait1.Time(end);
     
@@ -149,9 +154,8 @@ try
         
         [out1_adj, cells_adj] = chargeToSOC(initialSOC, adjCurr, 'cellIDs', cellIDs,...
             'testSettings', testSettings);
-        %                 resultCollection{end+1} = [out1_adj.Time + prevSeqTime, out1_adj.Data];
-        %                 prevSeqTime = prevSeqTime + out1_adj.Time(end);
     end
+    battTS = appendBattTS2TS(battTS, out1_adj);
     
     
     % ############### Running Profile ###############
@@ -167,6 +171,7 @@ try
     
     [out1, cells1] = runProfileToSOC(cycleProfiles(ii), targetSOC, [],...
         'cellIDs', cellIDs, 'testSettings', testSettings);
+    battTS = appendBattTS2TS(battTS, out1);
 %     resultCollection{end+1} = [out1.Time + prevSeqTime, out1.Data];
 %     prevSeqTime = prevSeqTime + out1.Time(end);
     
@@ -182,9 +187,7 @@ try
     end
     [out2_wait, cell2_wait] = waitTillTime(waitTime, 'cellIDs', cellIDs,...
             'testSettings', testSettings);
-    
-%     resultCollection{end+1} = [out.Time + prevSeqTime, out.Data];
-%     prevSeqTime = prevSeqTime + out.Time(end);
+    battTS = appendBattTS2TS(battTS, out2_wait);
     
 
     msg = newline + "Script 2." + newline + ...
@@ -213,6 +216,7 @@ try
         [out2, cells2] = chargeToVolt(dischargedVolt, curr, 'cellIDs', cellIDs, ...
            'testSettings', testSettings);
     end
+    battTS = appendBattTS2TS(battTS, out2);
     
     % Can add a runProfile test based on a dither current profile
         
@@ -226,6 +230,7 @@ try
     end
     [out3, cells3] = chargeToSOC(1, adjCurr, 'cellIDs', cellIDs,...
             'testSettings', testSettings);
+    battTS = appendBattTS2TS(battTS, out3);
     % Can add a runProfile test based on a dither current profile
 
     
@@ -278,11 +283,11 @@ try
     
     saveName = Filename + ".mat";
     
-    save(testSettings.saveDir + "\" + saveName , 'DYNData');
+    save(testSettings.saveDir + "\" + saveName , 'DYNData', 'battTS');
         
         
     % Update Experiment Logs File
-    updateExpLogs(fileName, testSettings.purpose, cellIDs, batteryParam);
+    updateExpLogs(saveName, testSettings.purpose, cellIDs, batteryParam);
     
     
     %     disp("Program Finished");
