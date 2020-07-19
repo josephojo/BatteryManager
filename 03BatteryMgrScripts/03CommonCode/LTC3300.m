@@ -117,8 +117,18 @@ classdef LTC3300 < handle
     methods (Static) % Access = private)
         
         function balance_action = Convert_Balance_Command_To_Balance_Action(balance_command)
-            
-%             balance_action = LTC3300.Cell_Balancer.BALANCE_ACTION;
+            %Convert_Balance_Command_To_Balance_Action Converts Hardware
+            %recognizable command to human recognizable actions.
+            %   Hardware "Balance Commands" include :
+            %       - LTC3300.Balance_Command.None                      = 0
+            %       - LTC3300.Balance_Command.Discharge_NoSync(Not Used)= 1
+            %       - LTC3300.Balance_Command.Discharge_Sync            = 2
+            %       - LTC3300.Balance_Command.Charge                    = 3
+            %   Human "Balance Actions" include : 
+            %       - LTC3300.Cell_Balancer.BALANCE_ACTION.None         = 0
+            %       - LTC3300.Cell_Balancer.BALANCE_ACTION.Discharge    = 1
+            %       - LTC3300.Cell_Balancer.BALANCE_ACTION.Charge       = 2
+
             
             if balance_command == LTC3300.Balance_Command.None
                 balance_action = LTC3300.Cell_Balancer.BALANCE_ACTION.None;
@@ -134,8 +144,17 @@ classdef LTC3300 < handle
         
         
         function balance_command = Convert_Balance_Action_To_Balance_Command(balance_action)
-            
-%             balance_command = LTC3300.Balance_Command;
+            %Convert_Balance_Action_To_Balance_Command Converts Human 
+            %recognizable actions to Hardware recognizable command.
+            %   Hardware "Balance Commands" include :
+            %       - LTC3300.Balance_Command.None                      = 0
+            %       - LTC3300.Balance_Command.Discharge_NoSync(Not Used)= 1
+            %       - LTC3300.Balance_Command.Discharge_Sync            = 2
+            %       - LTC3300.Balance_Command.Charge                    = 3
+            %   Human "Balance Actions" include : 
+            %       - LTC3300.Cell_Balancer.BALANCE_ACTION.None         = 0
+            %       - LTC3300.Cell_Balancer.BALANCE_ACTION.Discharge    = 1
+            %       - LTC3300.Cell_Balancer.BALANCE_ACTION.Charge       = 2
             
             if balance_action == LTC3300.Cell_Balancer.BALANCE_ACTION.None
                 balance_command = LTC3300.Balance_Command.None;

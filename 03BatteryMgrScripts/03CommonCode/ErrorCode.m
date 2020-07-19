@@ -21,6 +21,7 @@ classdef ErrorCode
         EXCEPTION
         EMERGENCY_STOP
         FEATURE_UNAVAIL     % Feature requested has not yet been implemented
+        OUT_OF_BOUNDS % The value chosen/being used is outside the allowable range
         
         % COMM ErrorCodes
         COMMPORT_NOTFOUND
