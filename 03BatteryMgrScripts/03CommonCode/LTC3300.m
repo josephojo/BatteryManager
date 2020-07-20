@@ -82,8 +82,8 @@ classdef LTC3300 < handle
     % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
     properties
         ic_num
-        status_valid
-        Enabled
+        status_valid = false;
+        Enabled = true;
         errLog
         
         % Variable to receive the current balance commands/actions of the
@@ -197,12 +197,11 @@ classdef LTC3300 < handle
     % PUBLIC METHODS
     % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
     methods
-        function obj = LTC3300(ic_num, errLog)
+        function obj = LTC3300(ic_ID, errLog)
             %LTC3300 Construct an instance of this class
-            %   
-            obj.Enabled = true;
-            obj.status_valid = false;
-            obj.ic_num = ic_num;
+            %  
+            
+            obj.ic_num = ic_ID;
             obj.errLog = errLog;
         end
 

@@ -322,7 +322,7 @@ classdef DC2100A < handle
         
         
         % *** Balancer Controls
-        LTC3300s % Array of LTC3300 Balancers objects for the max amount of boards
+        LTC3300s = []; % Array of LTC3300 Balancers objects for the max amount of boards
         Timed_Balancers = repmat(struct('bal_action', 0, 'bal_timer', 0),...
             DC2100A.MAX_BOARDS, DC2100A.MAX_CELLS);
         Passive_Balancers = zeros(1, DC2100A.MAX_BOARDS); % Not implemented yet since not needed.
@@ -448,17 +448,23 @@ classdef DC2100A < handle
         
         function obj = System_Init(obj, attached)
             try
-                obj.LTC3300s = repmat(...
-                    LTC3300(0, obj.errLog),...
-                    DC2100A.MAX_BOARDS, DC2100A.NUM_LTC3300); % Array of the LTC3300 Class
-                
-                for board_num = 0 : DC2100A.MAX_BOARDS -1
-                    for ic_num = 0 : DC2100A.NUM_LTC3300 -1
-                        % Group together the IC level status bits for this LTC3300
-                        obj.LTC3300s(board_num +1, ic_num +1).ic_num = ic_num;
-                    end
-                end
+%                 obj.LTC3300s = repmat(...
+%                     LTC3300(0, obj.errLog),...
+%                     DC2100A.MAX_BOARDS, DC2100A.NUM_LTC3300); % Array of the LTC3300 Class
+%                 
+%                 for board_num = 0 : DC2100A.MAX_BOARDS -1
+%                     for ic_numVal = 0 : DC2100A.NUM_LTC3300 -1
+%                         % Group together the IC level status bits for this LTC3300
+%                         obj.LTC3300s(board_num +1, ic_numVal +1).ic_num = ic_numVal;
+%                     end
+%                 end
 
+                ic_IDs = [zeros(DC2100A.MAX_BOARDS, 1), ones(DC2100A.MAX_BOARDS, 1)];
+                for i = 1 : DC2100A.MAX_BOARDS * DC2100A.NUM_LTC3300
+                    LTC_Bal(i) = LTC3300(ic_IDs(i), obj.errLog);
+                end
+                obj.LTC3300s = reshape(LTC_Bal, DC2100A.MAX_BOARDS, DC2100A.NUM_LTC3300);
+                
                 
                 % Init Tree View
                 if (attached == false)
@@ -959,7 +965,7 @@ classdef DC2100A < handle
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
                             % If this is a board we don't know, then this is a failed response
-                            obj.errLog.Add(Error_Code.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1182,6 +1188,13 @@ classdef DC2100A < handle
                                     
                                     obj.buf_out.add(LTC3300_Raw_Read(obj,...
                                         board_num, LTC3300.Command.Read_Status));
+                                    
+                                    if size(obj.numCells(:), 1) >= obj.numBoards
+                                        % Temporary #ComeBack - Need to have a better way for users
+                                        % to enter number of cells connected
+                                        ConfigConnectedCells(obj, board_num, obj.numCells(board_num +1));
+                                        Cell_Present_Write(obj, board_num);
+                                    end
                                 end
                                 
                                 
@@ -1225,7 +1238,7 @@ classdef DC2100A < handle
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
-                            obj.errLog.Add(Error_Code.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1258,25 +1271,25 @@ classdef DC2100A < handle
                             % get the 12 cell charge current
                             num_bytes = 4;
                             temp_board_id_data.Average_Charge_Current_12Cell...
-                                = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes)) / 1000;
+                                = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                             index = index + num_bytes;
                             
                             % get the 12 cell discharge current
                             num_bytes = 4;
                             temp_board_id_data.Average_Discharge_Current_12Cell...
-                                = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes)) / 1000;
+                                = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                             index = index + num_bytes;
                             
                             % get the 6 cell charge current
                             num_bytes = 4;
                             temp_board_id_data.Average_Charge_Current_6Cell ...
-                                = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes)) / 1000;
+                                = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                             index = index + num_bytes;
                             
                             % get the 6 cell discharge current
                             num_bytes = 4;
                             temp_board_id_data.Average_Discharge_Current_6Cell ...
-                                = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes)) / 1000;
+                                = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                             index = index + num_bytes;
                             
                             % get the firmware revision
@@ -1318,7 +1331,7 @@ classdef DC2100A < handle
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
-                            obj.errLog.Add(Error_Code.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1405,7 +1418,7 @@ classdef DC2100A < handle
                                 if obj.voltage_timestamp(board_num +1).time_difference > 4
                                     obj.num_times_over_4sec ...
                                         = obj.num_times_over_4sec + 1;
-                                    obj.errLog.Add(Error_Code.USB_Delayed,...
+                                    obj.errLog.Add(ErrorCode.USB_Delayed,...
                                         num2str(obj.voltage_timestamp(board_num +1)...
                                         .time_difference) + ":" + num2str(obj.num_times_over_4sec)); % #debugString=buffer
                                 end
@@ -1439,7 +1452,7 @@ classdef DC2100A < handle
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
                             % If this is a board we don't know, then this is a failed response
-                            obj.errLog.Add(Error_Code.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1517,7 +1530,7 @@ classdef DC2100A < handle
                                 if obj.temperature_timestamp(board_num +1).time_difference > 4
                                     obj.num_times_over_4sec ...
                                         = obj.num_times_over_4sec + 1;
-                                    obj.errLog.Add(Error_Code.USB_Delayed,...
+                                    obj.errLog.Add(ErrorCode.USB_Delayed,...
                                         num2str(obj.temperature_timestamp(board_num +1)...
                                         .time_difference) + ":" + num2str(obj.num_times_over_4sec)); % #debugString=buffer
                                 end
@@ -1549,7 +1562,7 @@ classdef DC2100A < handle
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
                             % If this is a board we don't know, then this is a failed response
-                            obj.errLog.Add(Error_Code.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1578,7 +1591,7 @@ classdef DC2100A < handle
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
                             % If this is a board we don't know, then this is a failed response
-                            obj.errLog.Add(Error_Code.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1636,7 +1649,7 @@ classdef DC2100A < handle
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
                             % If this is a board we don't know, then this is a failed response
-                            obj.errLog.Add(Error_Code.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1666,7 +1679,7 @@ classdef DC2100A < handle
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
-                            obj.errLog.Add(Error_Code.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1737,7 +1750,7 @@ classdef DC2100A < handle
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
                             % If this is a board we don't know, then this is a failed response
-                            obj.errLog.Add(Error_Code.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -2041,7 +2054,7 @@ classdef DC2100A < handle
         end
         
         
-        function obj = ConfigConnectedCells(obj, board_num, num_connected_cells)
+        function status = ConfigConnectedCells(obj, board_num, num_connected_cells)
             %ConfigConnectedCells Converts num of cells to connection map
             %    Configures the number of connected cells to a bitmap
             %    corresponding to where on the board the device
@@ -2057,8 +2070,11 @@ classdef DC2100A < handle
             %                               connected according to the
             %                               configurations on the DC2100B
             %                               Demo manual
-            
-            if CheckSelectBoard(obj, board_num) == false, return; end
+            status = ErrorCode.NO_ERROR;
+            if CheckSelectBoard(obj, board_num) == false
+                status = ErrorCode.USB_PARSER_UNKNOWN_BOARD;
+                return; 
+            end
             
             switch num_connected_cells
                 case 4
@@ -2089,6 +2105,12 @@ classdef DC2100A < handle
                     board_config = [true, true, true, true, true, true, true, true, true, true, true, true];
                     ic_config = [true, true];
                 otherwise
+                    status = ErrorCode.OUT_OF_BOUNDS;
+                    obj.errLog.Add(ErrorCode.OUT_OF_BOUNDS,...
+                        "Board: " + num2str(board_num),...
+                        ". The number of cells specified " + ...
+                        + " is outside the allowable range of 4 - 12. Resorting to the Max value.", ...
+                    "Value Chosen: " + num2str(num_connected_cells));
                     board_config = [true, true, true, true, true, true, true, true, true, true, true, true];
                     ic_config = [true, true];
             end
@@ -2222,10 +2244,14 @@ classdef DC2100A < handle
             %       varargin        : Name-Value pairs of input consisting
             %                           of only the following:
             %                           - 'USB_ASYNC' ,true / [false]
-            %                           - 'Num_Cells' ,[4] - 12 cells
+            %                           - 'Num_Cells' ,[4] - 12 cells for
+            %                           each board connected/planned to be
+            %                           connected. e.g [12, 12, 4] for
+            %                           board 0, board 1, and board 2
+            %                           respectively
             %                           
             try
-                profile on
+%                 profile on
                 % Varargin Evaluation
                 % Code to implement user defined values
                 param = struct(...
@@ -2255,7 +2281,7 @@ classdef DC2100A < handle
                 end
                 
                 obj.numCells = param.Num_Cells;
-                
+                                
                 tic;
                 
                 obj.USBTimer = timer;
@@ -2302,7 +2328,11 @@ classdef DC2100A < handle
                     return;
                 end
                 
-                obj.errLog = errLogApp;
+                if ~isvalid(errLogApp)
+                    obj.errLog = ErrorLog();
+                else
+                    obj.errLog = errLogApp;
+                end
                 
                 setUSBDataSizes(obj);
                 
@@ -2352,10 +2382,6 @@ classdef DC2100A < handle
                     % Start COMM out timer
                     start(obj.USBTimer);
                     
-                    % Temporary #ComeBack - Need to have a better way for users
-                    % to enter number of cells connected
-                    ConfigConnectedCells(obj, DC2100A.NUCLEO_BOARD_NUM, obj.numCells);
-                    Cell_Present_Write(obj, DC2100A.NUCLEO_BOARD_NUM);
                 else
                     disp("Returned Error from getModelNum = " + status);
                 end
@@ -2366,7 +2392,7 @@ classdef DC2100A < handle
         end
         
         
-        function Cell_Present_Write(obj, board_num, varargin)
+        function Cell_Present_Write(obj, board_num, num_cells)
             %Cell_Present_Write Sends num of connected cells to MCU for OVUV prevention.
             %   Writes the cells that have been selected by
             %   the user as connected to the MCU so the cells don't trigger 
@@ -2376,12 +2402,14 @@ classdef DC2100A < handle
             %                               add it behind function i.e. 
             %                               obj.Cell_Present_Write(board_num)
             %       board_num           : board # from 0 to MAX Num of boards - 1 (9)
-            %
+            %       varargin            : Number of cells connected
             
             if nargin > 2
-               if isnumeric(varargin{1}) && varargin{1} <= DC2100A.MAX_CELLS
-                   ConfigConnectedCells(obj, varargin{1});
-                   return;
+               status = ConfigConnectedCells(obj, board_num, num_cells);
+               if status ~= ErrorCode.NO_ERROR
+                   obj.errLog.Add(status,...
+                    "Board: " + num2str(board_num),...
+                    ". Unable to write Cell Present configuration.");
                end
             end
             
@@ -2413,12 +2441,12 @@ classdef DC2100A < handle
             
             % Log an error when the board selected is greater than the 
             % number of boards connected
-            if(board_num < obj.numBoards - 1) 
+            if(board_num < obj.numBoards) 
                 obj.selectedBoard = board_num;
                 validBoard = true;
             else
                 validBoard = false;
-                obj.errLog.Add(Error_Code.USB_PARSER_UNKNOWN_BOARD,...
+                obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                     "Board: " + num2str(board_num),...
                     ". The selected board is not available or invalid.");
             end
@@ -2616,17 +2644,19 @@ classdef DC2100A < handle
             %    Inputs:
             %       obj                 : DC2100A object. Can otherwise 
             %                               add it behind function i.e. 
-            %                               obj.Cell_Present_Write(board_num)
+            %                               obj.LTC3300_Write_Balance(obj, board_num, bal_actions)
             %       board_num           : board # from 0 to MAX Num of boards - 1 (9)
             %       bal_actions         :  Balancer Actions based on
             %                               LTC3300.Cell_Balancer.BALANCE_ACTION
             %                               in a vector ranging from
-            %                               1 to (LTC3300.NUM_CELLS * DC2100A.NUM_LTC3300).
+            %                               1 to (LTC3300.NUM_CELLS * DC2100A.NUM_LTC3300), 
+            %                               i.e. [cells(1-6), cells(7-12)].
+            %                               This input is only valid when command =
+            %                               LTC3300.Command.Write_Balance.
             
             ltc3300_Command = LTC3300.Command.Write_Balance;
             
-            obj.buf_out.add(LTC3300_Raw_Write(obj, ltc3300_Command, ...
-                                'board_num', board_num, 'bal_actions', bal_actions));
+            obj.buf_out.add(LTC3300_Raw_Write(obj, ltc3300_Command,  board_num, bal_actions)); 
             
         end
         
@@ -2640,7 +2670,7 @@ classdef DC2100A < handle
             %    Inputs:
             %       obj                 : DC2100A object. Can otherwise
             %                               add it behind function i.e.
-            %                               obj.Cell_Present_Write(board_num)
+            %                               obj.LTC3300_Execute()
             
             % If OV or UV is not present, start the balancing
             [status, board_num] = Get_SystemOVorUV(obj);
@@ -2699,74 +2729,36 @@ classdef DC2100A < handle
         end
         
         
-        function dataString = LTC3300_Raw_Write(obj, command, varargin)
+        function dataString = LTC3300_Raw_Write(obj, command, board_num, bal_actions)
             %LTC3300_Raw_Write  Returns the USB command to write to the LTC3300s on the selected board
             %   Input:
             %       obj         : DC2100A object. Can otherwise add it behind
             %                       function i.e. obj.LTC3300_Raw_Write(cmd, board_num)
             %       command     : General LTC3300 Command value from the LTC3300 Class
-            %       varargin    : There are 2 available options:
-            %                       - "board_num",Default=0. board # from 0 to MAX Num of boards - 1 (9)
-            %                       - 'Actions' or 'Bal_Actions'.Default=[]
-            %                           Balancer Actions based on
-            %                           LTC3300.Cell_Balancer.BALANCE_ACTION
-            %                           in a vector ranging from
-            %                           1 to (LTC3300.NUM_CELLS * DC2100A.NUM_LTC3300).
-            %                           This input is only valid when command =
-            %                           LTC3300.Command.Write_Balance.
-            %                           Specify as a vector value only or a
-            %                           name-value pair, where name is 'Actions'
-            %                           or 'Bal_Actions'.
+            %       board_num   : Default=0. board # from 0 to MAX Num of boards - 1 (9)
+            %       Bal_Actions : Default=[]
+            %                       Balancer Actions based on
+            %                       LTC3300.Cell_Balancer.BALANCE_ACTION
+            %                       in a vector ranging from
+            %                       1 to (LTC3300.NUM_CELLS * DC2100A.NUM_LTC3300), 
+            %                       i.e. [cells(1-6), cells(7-12)].
+            %                       This input is only valid when command =
+            %                       LTC3300.Command.Write_Balance.
             %
             %   Output:
             %       dataString  : Command String written to the board containing
             %                       data to the LTC3300 Balancers on board.
             
             
-            param = struct(...
-                'board_num',    0, ...
-                'actions',      [], ...
-                'bal_actions',  []);
-            
-            % read the acceptable names
-            paramNames = fieldnames(param);
-            
-            % Ensure variable entries are pairs
-            nArgs = length(varargin);
-            if round(nArgs/2)~=nArgs/2
-                error('LTC3300_Raw_Write needs Name/Value pairs')
+            if nargin < 3
+                board_num = 0;
+                bal_actions = [];
             end
-            
-            for pair = reshape(varargin,2,[]) %# pair is {propName;propValue}
-                inpName = pair{1}; %# make case insensitive
-                
-                if any(strcmpi(inpName,paramNames))
-                    %# overwrite options. If you want you can test for the right class here
-                    %# Also, if you find out that there is an option you keep getting wrong,
-                    %# you can use "if strcmp(inpName,'problemOption'),testMore,end"-statements
-                    param.(inpName) = pair{2};
-                else
-                    error('%s is not a recognized parameter name',inpName)
-                end
-            end
-            
-            
-            
             
             dataString = DC2100A.USB_PARSER_LTC3300_COMMAND + "W";
             
             % Send the board requested
             if (command == LTC3300.Command.Write_Balance)
-                board_num = param.board_num;
-                if ~isempty(param.bal_actions)
-                    bal_actions = param.bal_actions;
-                elseif ~isempty(param.actions)
-                    bal_actions = param.actions;
-                else
-                    error("Please enter an array of balance actions for" ...
-                      + " this function using a name-value pair." + newline ...
-                      + " e.g. 'bal_actions', action_array");
-                end
                 dataString = dataString + dec2hex(board_num, 2);
             elseif (command == LTC3300.Command.Execute) || (command == LTC3300.Command.Suspend)
                 dataString = dataString + dec2hex(DC2100A.LTC6804_BROADCAST ,2);
@@ -2901,7 +2893,7 @@ classdef DC2100A < handle
         end
         
         
-        function Set_UV_Threshold(obj, Vmin)           
+        function Set_UV_Threshold(obj, Vmin) 
             vmin_last = obj.vMin;
             
             try
@@ -2936,12 +2928,12 @@ classdef DC2100A < handle
             if num_currents == DC2100A.MAX_CELLS
                 curr2Send = current;
                 
-            elseif num_currents == obj.numCells
+            elseif num_currents == obj.numCells(board_num +1)
                 curr2Send = zeros(DC2100A.MAX_CELLS, 1);
                 curr2Send(obj.cellPresent(board_num +1, :)) = current;
                 
             elseif num_currents < DC2100A.MIN_CELLS || num_currents > DC2100A.MAX_CELLS
-                obj.errLog.Add(Error_Code.OUT_OF_BOUNDS,...
+                obj.errLog.Add(ErrorCode.OUT_OF_BOUNDS,...
                     "Board: " + num2str(board_num),...
                     ". The number of current values being sent to the balancer" + ...
                     + " is outside the allowable range of 4 - 12.", ...
@@ -2958,19 +2950,16 @@ classdef DC2100A < handle
             % balance commands since they are not being sent directly to
             % the LTC3300s but instead, to a low level controller.
             
-            chrg_ind = curr2Send > 0;
+            actions = zeros(1, DC2100A.MAX_CELLS);
             dchrg_ind = curr2Send < 0; 
-            zero_ind = curr2Send == 0;
-            
-            % Action Specifiers.
-            actions(zero_ind) = 0;  % Idle Action (Do nothing)
             actions(dchrg_ind) = 1; % Discharge Action 
-            actions(chrg_ind) = 2;  % Charge Action 
-
-            curr2Send = uint16(abs(curr2Send) * DC2100A.MA_PER_A); % Send in 2 bytes per cell current
             
-            dataString = dataString + strjoin(string(dec2hex(actions, 2)), "");
-            dataString = dataString + strjoin(string(dec2hex(curr2Send, 4)), "");
+            actions2Send = bin2dec(num2str(flip(actions))); % flip cuz bin2dec takes the array from the right to left instead of left to right
+            
+            curr2Send2 = abs(curr2Send) * DC2100A.MA_PER_A; % Send in 2 bytes per cell current
+            
+            dataString = dataString + string(dec2hex(actions2Send, 4));
+            dataString = dataString + strjoin(string(dec2hex(curr2Send2, 4)), "");
             
             obj.buf_out.add(dataString);
             
@@ -3023,7 +3012,7 @@ classdef DC2100A < handle
             end
             
 %             profile viewer
-            profile off;
+%             profile off;
         end
         
     end
