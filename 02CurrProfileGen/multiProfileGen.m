@@ -1,4 +1,4 @@
-function multiProfileGen(maxCurr, cellIDs, saveLocation, cellConfig, batteryParam)
+function multiProfileGen(max_cRate, cellIDs, saveLocation, cellConfig, batteryParam)
 % clearvars;
 % clc;
 % close all;
@@ -32,6 +32,12 @@ mph2mps=0.44704;
 % maxCurr = MaxCurr; %15A is equivalent to 6C
 
 interv = 0.05;
+
+if strcmpi(cellConfig, 'parallel')
+    maxCurr = sum(batteryParam.ratedCapacity(cellIDs) * max_cRate);
+else
+    maxCurr = batteryParam.ratedCapacity(cellIDs) * max_cRate; % batteryParam.maxCurr(cellIDs);
+end
 
 %% For loop to convert speed current or each driving cycle in "filelist"
 for i=1:length(filelist)
@@ -96,9 +102,9 @@ end
 %% Save to file
 if length(cellIDs) > 1
     save(saveLocation + "002_" + num2str(length(cellIDs)) + upper(cellConfig(1)) + ...
-            batteryParam.chemistry(cellIDs(1))+ "_CurrProfiles.mat",'cycleNames','cycleProfiles', 'ccNames','ccProfiles');
+            batteryParam.chemistry(cellIDs(1)) + "_" + max_cRate + "C_CurrProfiles.mat",'cycleNames','cycleProfiles', 'ccNames','ccProfiles');
 else
-    save(saveLocation + "002_" + cellIDs + "_CurrProfiles.mat",'cycleNames','cycleProfiles', 'ccNames','ccProfiles');
+    save(saveLocation + "002_" + cellIDs + "_" + max_cRate + "C_CurrProfiles.mat",'cycleNames','cycleProfiles', 'ccNames','ccProfiles');
 end
 
 cd(currentPath);

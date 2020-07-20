@@ -38,7 +38,7 @@ try
             "03DataGen","Boundaries","inclusive");
         testSettings.saveDir = str + "\01CommonDataForBattery";
         
-        testSettings.saveName   = "01DYNData_" + cellIDs + ".mat";
+        testSettings.saveName   = "01DYNData_" + cellIDs;
         testSettings.purpose    = "To use in identifying the RC parameters for an ECM model";
         testSettings.tempChnls  = [9, 10, 11];
         testSettings.trigPins = []; % Fin in every pin that should be triggered
@@ -74,25 +74,21 @@ try
         adjCurr = mean(batteryParam.ratedCapacity(cellIDs))*adjCRate; % X of rated Capacity
     end
     
+    profile_cRate = 1;
     cur = pwd;
     cd(dataLocation)
     if strcmpi (cellConfig, 'single')
-        searchCriteria = "002_" + cellIDs(1)+ "_CurrProfiles*";
+        searchCriteria = "002_" + cellIDs(1) + "_" + profile_cRate + "C_CurrProfiles*";
     else
         searchCriteria = "002_" + num2str(numCells) + upper(cellConfig(1)) + ...
-            batteryParam.chemistry(cellIDs(1))+ "_CurrProfiles*";
+            batteryParam.chemistry(cellIDs(1)) + "_" + profile_cRate + "C_CurrProfiles*";
     end
     fName = dir(searchCriteria);
     cd(cur)
     
     % Create Current profile if it does not currently exist
     if isempty(fName)
-        if strcmpi(cellConfig, 'parallel')
-            maxCurr = sum(batteryParam.maxCurr(cellIDs));
-        else
-            maxCurr = 8; % batteryParam.maxCurr(cellIDs);
-        end
-        multiProfileGen(maxCurr,...
+        multiProfileGen(profile_cRate,...
             cellIDs, dataLocation, cellConfig, batteryParam)
         cur = pwd;
         cd(dataLocation)
@@ -279,7 +275,7 @@ try
     % Don't save battery param here, it updates the
     % good values stored by "runProfile"
     
-    Filename = testSettings.saveName; % + "_" + DateCompleted;
+    Filename = testSettings.saveName + "_" + DateCompleted;
     
     saveName = Filename + ".mat";
     
