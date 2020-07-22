@@ -274,7 +274,7 @@ try
                             
     % Don't save battery param here, it updates the
     % good values stored by "runProfile"
-    
+    DateCompleted = string(datestr(now,'yymmdd_HHMM'));
     Filename = testSettings.saveName + "_" + DateCompleted;
     
     saveName = Filename + ".mat";
