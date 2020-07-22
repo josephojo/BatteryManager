@@ -242,11 +242,11 @@ try
                             
     DYNData.script1.current = [ out1_wait.data(:, curr_ind)', ...
                                 out1_adj.data(:, curr_ind)', ...
-                                out1.data(:, curr_ind)' ];
+                                out1.data(:, curr_ind)' ] * -1; % Xly by -1 since charge = +ve and dischrg = -ve in the data collection, but "runProcessDynamic.m" identifies parameters with chrg = -ve etc
                             
     DYNData.script1.ahCap = [ out1_wait.data(:, ah_ind)', ...
                                 out1_adj.data(:, ah_ind)', ...
-                                out1.data(:, ah_ind)' ];
+                                out1.data(:, ah_ind)' + out1_adj.data(end, ah_ind) ];
                             
     % Save Data for Script 2                        
     DYNData.script2.time =    [ out2_wait.time(:)', ...
@@ -256,7 +256,7 @@ try
                                 out2.data(:, volt_ind)'  ];
                             
     DYNData.script2.current = [ out2_wait.data(:, curr_ind)', ...
-                                out2.data(:, curr_ind)' ];
+                                out2.data(:, curr_ind)' ] * -1; % Xly by -1 since charge = +ve and dischrg = -ve in the data collection, but "runProcessDynamic.m" identifies parameters with chrg = -ve etc
                             
     DYNData.script2.ahCap =   [ out2_wait.data(:, ah_ind)', ...
                                 out2.data(:, ah_ind)' ];
@@ -267,7 +267,7 @@ try
     
     DYNData.script3.voltage =  out3.data(:, volt_ind)' ;
                             
-    DYNData.script3.current =  out3.data(:, curr_ind)' ;
+    DYNData.script3.current =  out3.data(:, curr_ind)'  * -1; % Xly by -1 since charge = +ve and dischrg = -ve in the data collection, but "runProcessDynamic.m" identifies parameters with chrg = -ve etc
                             
     DYNData.script3.ahCap =    out3.data(:, ah_ind)';
                             
