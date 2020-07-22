@@ -375,6 +375,8 @@ classdef DC2100A < handle
         %  *** Timer Object
         USBTimer
         
+        sTime_MPC = 1;
+        
     end
 
     
@@ -1402,6 +1404,7 @@ classdef DC2100A < handle
                                 temp_num_cells = temp_num_cells + obj.Board_Summary_Data(temp_board +1).Num_Cells;
                                 temp_sum = temp_sum + obj.Board_Summary_Data(temp_board +1).Volt_Sum;
                             end
+                            
                             obj.Stack_Summary_Data.Volt_Max = temp_max;
                             obj.Stack_Summary_Data.Volt_Min = temp_min;
                             obj.Stack_Summary_Data.Volt_Max_Cell = cell_max;
@@ -2523,8 +2526,8 @@ classdef DC2100A < handle
             %                               1 to (LTC3300.NUM_CELLS * DC2100A.NUM_LTC3300).
             %       balance_timer       : Balancer Durations or times in
             %                               seconds. Decimal notation is in
-            %                               increments of 0.25 otherwise it
-            %                               rounds it down to nearest 0.25.
+            %                               increments of 0.0625 otherwise it
+            %                               rounds it down to nearest 0.625.
             %                               This happens due to the task
             %                               rate of the balancer task in
             %                               the FW. It runs every 250ms.
@@ -2567,11 +2570,11 @@ classdef DC2100A < handle
             end
             
             if balancer_error == true
-            errordlg("A Timed Balance Value Must be Assigned to Charge or Discharge."...
-                +newline + "Unable to write commands.", ...
-                "Timed_Balance_Write Error");
+                errordlg("A Timed Balance Value Must be associated with a Charge or Discharge command."...
+                    +newline + "Unable to write commands.", ...
+                    "Timed_Balance_Write Error");
             else
-            obj.buf_out.add(dataString);
+                obj.buf_out.add(dataString);
             end
         end
         
@@ -2951,12 +2954,12 @@ classdef DC2100A < handle
             % the LTC3300s but instead, to a low level controller.
             
             actions = zeros(1, DC2100A.MAX_CELLS);
-            dchrg_ind = curr2Send < 0; 
+            dchrg_ind = curr2Send > 0; % Negative values are charging currents, positive values discharging
             actions(dchrg_ind) = 1; % Discharge Action 
             
             actions2Send = bin2dec(num2str(flip(actions))); % flip cuz bin2dec takes the array from the right to left instead of left to right
             
-            curr2Send2 = abs(curr2Send) * DC2100A.MA_PER_A; % Send in 2 bytes per cell current
+            curr2Send2 = abs(curr2Send) * DC2100A.MA_PER_A * obj.sTime_MPC; % Send in terms of capacity (mAs) in 2 bytes per cell current
             
             dataString = dataString + string(dec2hex(actions2Send, 4));
             dataString = dataString + strjoin(string(dec2hex(curr2Send2, 4)), "");

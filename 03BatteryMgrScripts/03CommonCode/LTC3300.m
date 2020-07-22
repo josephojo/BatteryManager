@@ -52,8 +52,8 @@ classdef LTC3300 < handle
         % DC2100A Board
         Cell_Balancer = struct ...
             (...	
-                'BALANCE_TIME_RESOLUTION'   , 0.25, ... %  s per bit
-                'BALANCE_TIME_MAX'          , (bitshift(1, 15) - 1) * 0.25, ... % 15 bit time
+                'BALANCE_TIME_RESOLUTION'   , 0.0625, ... %  s per bit
+                'BALANCE_TIME_MAX'          , (bitshift(1, 15) - 1) * 0.0625, ... % 15 bit time
                 'BALANCE_TIME_FORMAT'       , "0.00", ...
                 'BALANCE_COMMAND_SIZE'      , 2,  ... 
                 'BALANCE_ACTION'            , struct... % Human understandable balance actions
@@ -68,13 +68,6 @@ classdef LTC3300 < handle
         
     end
     
-    
-    % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-    % PRIVATE PROPERTIES
-    % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-    properties
-
-    end
     
     
     % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
