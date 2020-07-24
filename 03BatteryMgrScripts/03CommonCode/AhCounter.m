@@ -121,16 +121,16 @@ try
         testSettings.cellConfig = 'single';
     end
     
-%     % Step 1: Bring the cell  to Full Capacity
-%     battTS_chrg = chargeToSOC(1, cRate_chrg*cap, 'cellIDs', cellIDs, 'testSettings', testSettings);
-% 
-%     % Step 2: Let the battery rest
-%     battTS_Wait_Chrg = waitTillTime(waitTime, 'cellIDs', cellIDs, 'testSettings', testSettings);
-%     battTS_temp = appendBattTS2TS(battTS_chrg, battTS_Wait_Chrg);
+    % Step 1: Bring the cell  to Full Capacity
+    battTS_chrg = chargeToSOC(1, cRate_chrg*cap, 'cellIDs', cellIDs, 'testSettings', testSettings);
+
+    % Step 2: Let the battery rest
+    battTS_Wait_Chrg = waitTillTime(waitTime, 'cellIDs', cellIDs, 'testSettings', testSettings);
+    battTS_temp = appendBattTS2TS(battTS_chrg, battTS_Wait_Chrg);
 
     % Step 3: Discharge to empty
     dischargeToEmpty; % there is an internal variable "battTS" in script
-%     battTS = appendBattTS2TS(battTS_temp, battTS);
+    battTS = appendBattTS2TS(battTS_temp, battTS);
 
     
     % Plot the data if true
