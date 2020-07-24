@@ -104,6 +104,12 @@ if exist('ljasm','var')
     end
 end
 
+if exist('bal','var')
+    if isvalid(bal) && strcmpi(bal.serialStatus, 'Connected')
+        bal.disconnect();
+    end
+end
+
 
 if exist('thermo','var')
     clear ('thermo');
@@ -115,9 +121,11 @@ if strcmpi(caller, "gui")
 else
     disp(msg);
 end
-catch MEX
+catch ME
     if strcmpi(caller, "gui")
-        send(errorQ, MEX);
+        send(errorQ, ME);
+    else
+        rethrow(ME);
     end
 end
 % end

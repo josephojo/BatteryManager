@@ -77,7 +77,7 @@ classdef LTC3300 < handle
         ic_num
         status_valid = false;
         Enabled = true;
-        errLog
+        eventLog
         
         % Variable to receive the current balance commands/actions of the
         % balancers on the LTC3300 IC
@@ -190,12 +190,12 @@ classdef LTC3300 < handle
     % PUBLIC METHODS
     % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
     methods
-        function obj = LTC3300(ic_ID, errLog)
+        function obj = LTC3300(ic_ID, eventLog)
             %LTC3300 Construct an instance of this class
             %  
             
             obj.ic_num = ic_ID;
-            obj.errLog = errLog;
+            obj.eventLog = eventLog;
         end
 
         
@@ -252,7 +252,7 @@ classdef LTC3300 < handle
             
             % If CRC does not check, flag an error
             if crc_read ~= crc_check
-                obj.errLog.Add(ErrorCode.LTC3300_CRC, ...
+                obj.eventLog.Add(ErrorCode.LTC3300_CRC, ...
                     string(dec2hex(register, 4)) + " : calculated CRC ="...
                     + string(dec2hex(crc_check, 2)));
             else
@@ -333,7 +333,7 @@ classdef LTC3300 < handle
                         register = bitshift(register, -1);
                     end
                 else
-                    obj.errLog.Add(ErrorCode.LTC3300_CRC, ...
+                    obj.eventLog.Add(ErrorCode.LTC3300_CRC, ...
                         "Unknown command = "...
                         + string(dec2hex(command, 2)));
                 end

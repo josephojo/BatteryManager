@@ -32,7 +32,7 @@ if strcmpi(caller, "gui")
     if exist('psuArgs', 'var') && ~isempty(psuArgs)
         if strcmpi(psuArgs.type, "serial")
             if ~exist('psu','var') ...
-                    || (isvalid(eload) && strcmpi(psu.serialStatus(), "Disconnected"))
+                    || (isvalid(psu) && strcmpi(psu.serialStatus(), "Disconnected"))
                 if strcmpi(psuArgs.devName, "apm")
                     psu = APM_PSU(psuArgs.COMPort, "baudRate", psuArgs.baudRate);
                     psu.stopBits    = psuArgs.stopBits;
@@ -132,6 +132,29 @@ if strcmpi(caller, "gui")
             % -------------------------------------------------------------------------
             
         end
+        
+        %DC2100A Balancer
+        %##########################################################################
+        if exist('balArgs', 'var') && ~isempty(balArgs)
+            if strcmpi(balArgs.type, "serial")
+                if ~exist('bal','var') ...
+                        || (isvalid(bal) && strcmpi(bal.serialStatus(), "Disconnected"))
+                    if strcmpi(balArgs.devName, "DC2100A")
+                        bal = DC2100A(balArgs.COMPort, eventLog);
+                        bal.baudRate    = balArgs.baudRate;
+                        bal.stopBits    = balArgs.stopBits;
+                        bal.byteOrder   = balArgs.byteOrder;
+                    end
+                end
+            else
+                err.code = ErrorCode.BAD_DEV_ARG;
+                err.msg = "No connection type selected for the Balancer.";
+                send(errorQ, err);
+            end
+        end
+        %--------------------------------------------------------------------------
+    
+        
     end
     
 elseif strcmpi(caller, "cmdWindow")
@@ -214,6 +237,15 @@ elseif strcmpi(caller, "cmdWindow")
     end
     
     % -------------------------------------------------------------------------
+    
+    %DC2100A Balancer
+    %##########################################################################
+    balPort = 'COM8';
+    if ~exist('bal','var') ...
+            || (isvalid(bal) && strcmpi(bal.serialStatus(), "Disconnected"))
+        bal = DC2100A(balPort, eventLog);
+    end
+    %--------------------------------------------------------------------------
     
     
     % % Get the 0A voltage from the current sensor connected to the LabJack.

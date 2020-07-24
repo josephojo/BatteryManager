@@ -154,6 +154,9 @@ else
     
     if ~isempty(testSettings) && isfield(testSettings, 'cellConfig')
         cellConfig = testSettings.cellConfig;
+        if strcmpi(cellConfig, "series")
+            testSettings.voltMeasDev = "mcu";
+        end
     end
     
     if ~exist('cellConfig', 'var')
@@ -263,7 +266,7 @@ timerPrev = zeros(5, 1);
 % timerPrev(1): For Total Elapsed Time 
 % timerPrev(2): For Profile period
 % timerPrev(3): For Measurement Period
-% timerPrev(4): For BattSOC Estimation
+% timerPrev(4): For packSOC Estimation
 % timerPrev(5): For Progress dot (Dot that shows while code runs)
 
 if strcmpi(caller, "gui")
@@ -291,11 +294,21 @@ chargeVolt = highVoltLimit + 0.003; % Due to the small resistance in the wiring
 % cell is the individual cells
 
 prevSOC = mean(battProp.soc(cellIDs));
+
+% Transformation Matrix for calculating SOC in an Active Balancing process 
+% [1]	L. McCurlie, M. Preindl, P. Malysz, and A. Emadi, Eds., 
+% Simplified control for redistributive balancing systems using bidirectional 
+% flyback converters. 2015 IEEE Transportation Electrification Conference and Expo (ITEC), 2015.
+L2 = [zeros(numCells-1, 1), (-1 * eye(numCells-1))];
+L1 = eye(numCells);
+L1(end, :) = [];
+L = L1 + L2; 
+
 AhCap = 0;
 battState = ""; % State of the battery ("charging", "discharging or idle")
-battVolt = 0; % Measured Voltage of the battery stack
-battCurr = 0; % Current from either PSU or ELOAD depending on the battState
-battSOC = prevSOC; % Estimated SOC of the battery is stored here
+packVolt = 0; % Measured Voltage of the battery stack
+packCurr = 0; % Current from either PSU or ELOAD depending on the battState
+packSOC = prevSOC; % Estimated SOC of the battery is stored here
 if strcmpi(cellConfig, 'series')
     maxBattVoltLimit = sum(battProp.maxVolt(cellIDs)); % Maximum Voltage limit of the operating range of the battery stack
     minBattVoltLimit = sum(battProp.minVolt(cellIDs)); % Minimum Voltage limit of the operating range of the battery stack
@@ -318,10 +331,22 @@ battSurfTempLimit = mean(battProp.maxSurfTemp(cellIDs)); % Maximum Surface limit
 battCoreTempLimit = mean(battProp.maxCoreTemp(cellIDs)); % Maximum Core limit of the battery
 errorCode = 0;
 
+eventLog = [];
 
-verbose = 0; % How often to display (stream to screen). 1 = constantly, 0 = once a while
-if ~exist("verbose", 'var')
-    verbose = 1;
+% Opens the Event Logger
+if strcmpi(caller, "gui")
+    eventLog = balArgs.eventLog;
+else
+    if strcmpi(cellConfig, 'series')
+        if ~exist('eventLog', 'var')
+            eventLog = EventLogger();
+        end
+    end
+end
+
+% verbosity = 0; % How often to display (stream to screen). 1 = constantly, 0 = once a while
+if ~exist("verbosity", 'var')
+    verbosity = 1;
 end
 
 dotCounter = 0;

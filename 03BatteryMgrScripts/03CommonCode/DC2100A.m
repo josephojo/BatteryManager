@@ -63,9 +63,12 @@ classdef DC2100A < handle
     %           ******** i.e. first/primary board & cell are 
     %           ******** board 0 and cell 0 followed by board 1 and cell 1
     %           ******** and so on.
-    %                
+    %    
+    %   To only disconnect and dispose the serial interface run the 
+    %   following function in the command window or the matlab script:
+    %       >> disconnectSerial(bal);
     %
-    %   To dispose the object and disconnect the serial interface run the 
+    %   To disconnect the serial interface and dispose the DC2100A object run the 
     %   following function in the command window or the matlab script:
     %       >> disconnect(bal);
     %   
@@ -233,7 +236,7 @@ classdef DC2100A < handle
     % PUBLIC PROPERTIES
     % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
     properties
-        errLog      % Property that the error log handle is stored.
+        eventLog      % Property that the error log handle is stored.
         
         serial      % Property that the serial port handle is created. 
         baudRate    % Serial Port Property. Stores the baudrate e.g 115200
@@ -314,6 +317,7 @@ classdef DC2100A < handle
         %  *** Cell Level Data
         cellPresent % Array of true/false elements indicating if cells from boards are plugged in
         Voltages = zeros(DC2100A.MAX_BOARDS, DC2100A.MAX_CELLS); % Container to store the most recently measured VOLTAGE of each cell on each board
+        Currents = zeros(DC2100A.MAX_BOARDS, DC2100A.MAX_CELLS); % Container to store the most recently measured VOLTAGE of each cell on each board
         Temperatures = zeros(DC2100A.MAX_BOARDS, DC2100A.MAX_CELLS); % Container to store the most recently measured TEMPERATURE of each thermistor on each board
         OV_Flags = zeros(1,DC2100A.MAX_BOARDS); % Array of true/false values indicating if the boards connected have OV conditions
         UV_Flags = zeros(1,DC2100A.MAX_BOARDS); % Array of true/false values indicating if the boards connected have UV conditions
@@ -376,7 +380,7 @@ classdef DC2100A < handle
         USBTimer
         
         sTime_MPC = 1;
-        
+        Val = 0;
     end
 
     
@@ -451,7 +455,7 @@ classdef DC2100A < handle
         function obj = System_Init(obj, attached)
             try
 %                 obj.LTC3300s = repmat(...
-%                     LTC3300(0, obj.errLog),...
+%                     LTC3300(0, obj.eventLog),...
 %                     DC2100A.MAX_BOARDS, DC2100A.NUM_LTC3300); % Array of the LTC3300 Class
 %                 
 %                 for board_num = 0 : DC2100A.MAX_BOARDS -1
@@ -463,11 +467,10 @@ classdef DC2100A < handle
 
                 ic_IDs = [zeros(DC2100A.MAX_BOARDS, 1), ones(DC2100A.MAX_BOARDS, 1)];
                 for i = 1 : DC2100A.MAX_BOARDS * DC2100A.NUM_LTC3300
-                    LTC_Bal(i) = LTC3300(ic_IDs(i), obj.errLog);
+                    LTC_Bal(i) = LTC3300(ic_IDs(i), obj.eventLog);
                 end
                 obj.LTC3300s = reshape(LTC_Bal, DC2100A.MAX_BOARDS, DC2100A.NUM_LTC3300);
-                
-                
+                                
                 % Init Tree View
                 if (attached == false)
                     obj.system_state = DC2100A.SYSTEM_STATE_TYPE.Off;
@@ -706,7 +709,19 @@ classdef DC2100A < handle
                 end
             end
 %             obj.count = obj.count+1;
-%             disp("Count " + obj.count + ": " + num2str(toc(xx)) + "ms");            
+%             disp("Count " + obj.count + ": " + num2str(toc(xx)) + "ms");    
+
+            if obj.Val == 50
+                ind = 1:DC2100A.MAX_CELLS; s="";
+                for i = ind(logical(obj.cellPresent(1, :)))
+                    s = s+sprintf("Volt[%d] = %.4f\t", i, obj.Voltages(1, i));
+                end
+                fprintf(s + newline);
+                obj.Val = 0;
+            else
+                obj.Val = obj.Val + 1;
+            end
+
         end
         
         
@@ -774,7 +789,7 @@ classdef DC2100A < handle
                         % Check the status for errors
                         if status == ErrorCode.NO_ERROR
                         elseif status == ErrorCode.USB_PARSER_NOTDONE
-                            obj.errLog.Add(ErrorCode.USB_PARSER_NOTDONE,...
+                            obj.eventLog.Add(ErrorCode.USB_PARSER_NOTDONE,...
                                 "Parser could not finish while parsing '" + key + "'");
                         end
                     else
@@ -787,7 +802,7 @@ classdef DC2100A < handle
                     % Save the characters that were dropped, and write them into the Error log at the next good transaction.
                     obj.USB_Parser_Buffer_Dropped = obj.USB_Parser_Buffer_Dropped + obj.buf_in.remove;
                     if strlength(obj.USB_Parser_Buffer_Dropped) > DC2100A.USB_MAX_PACKET_SIZE
-                        obj.errLog.Add(ErrorCode.USB_DROPPED, obj.USB_Parser_Buffer_Dropped);
+                        obj.eventLog.Add(ErrorCode.USB_DROPPED, obj.USB_Parser_Buffer_Dropped);
                         obj.USB_Parser_Buffer_Dropped = "";
                     end
                     ind = ind + 1;
@@ -815,7 +830,7 @@ classdef DC2100A < handle
                             end
                         end
                     else
-                        obj.errLog.Add(ErrorCode.COMMTEST_DATA_MISMATCH,...
+                        obj.eventLog.Add(ErrorCode.COMMTEST_DATA_MISMATCH,...
                             "Did not receive Hello String from MCU.");
                         status = ErrorCode.COMMTEST_UNSUCCESSFUL;
                     end
@@ -829,7 +844,7 @@ classdef DC2100A < handle
                     string2 = string2(1:...
                         strlength(DC2100A.DC2100A_MODEL_NUM_DEFAULT));
                     if (strcmp1(string1, string2))
-                        obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_IDSTRING,...
+                        obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_IDSTRING,...
                             "Unknown ID String received by MCU.");
                         status = ErrorCode.USB_PARSER_UNKNOWN_IDSTRING;
                     end
@@ -841,7 +856,7 @@ classdef DC2100A < handle
                         length - strlength(DC2100A.DC2100A_MODEL_NUM_DEFAULT));
                     
                     if (strcmp1(string1, string2))
-                        obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_IDSTRING,...
+                        obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_IDSTRING,...
                             "Unknown ID String received by MCU.");
                         status = ErrorCode.USB_PARSER_UNKNOWN_IDSTRING;
                     end
@@ -850,7 +865,7 @@ classdef DC2100A < handle
                     status = ErrorCode.NO_ERROR;
                     if (DC2100A.REMOVE_LEN(obj.buf_in, length) ...
                             ~= DC2100A.USB_PARSER_DEFAULT_STRING)
-                        obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_COMMAND,...
+                        obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_COMMAND,...
                             "Unknown command received by MCU.");
                         status = ErrorCode.USB_PARSER_UNKNOWN_COMMAND;
                     end
@@ -890,7 +905,7 @@ classdef DC2100A < handle
                                     error_string = error_string ...
                                         + dec2hex(temp_error_data(byte_num), 2) + ", ";
                                 end
-                                obj.errLog.Add(ErrorCode.LTC6804_CRC, error_string, num2str(obj.Board_Summary_Data(temp_error_data(1)).Volt_Sum, 5)); % 5 here ensures 5 sig figs
+                                obj.eventLog.Add(ErrorCode.LTC6804_CRC, error_string, num2str(obj.Board_Summary_Data(temp_error_data(1)).Volt_Sum, 5)); % 5 here ensures 5 sig figs
                                 
                             case DC2100A.FW_ERROR_CODE.LTC3300_CRC
                                 error_string = ...
@@ -905,7 +920,7 @@ classdef DC2100A < handle
 %                                 disp("temp_error_data(1) = " + num2str(temp_error_data(1)));
 %                                 disp("Size of Board_Summary_Data: " + num2str(length(obj.Board_Summary_Data)));
 %                                 disp("num err = " + num2str(obj.Board_Summary_Data(temp_error_data(1) +1).Volt_Sum, 5))
-                                obj.errLog.Add(ErrorCode.LTC3300_CRC, error_string,...
+                                obj.eventLog.Add(ErrorCode.LTC3300_CRC, error_string,...
                                     "Volt_Sum: " + num2str(obj.Board_Summary_Data(temp_error_data(1) +1).Volt_Sum, 5) + "V"); % 5 here ensures 5 sig figs
                                 
                             case DC2100A.FW_ERROR_CODE.LTC6804_FAILED_CFG_WRITE
@@ -916,7 +931,7 @@ classdef DC2100A < handle
                                     + ", Test_Value_VOV: " + num2str(bitshift(temp_error_data(6), 8) + temp_error_data(7))...
                                     + " : " + num2str(bitshift(temp_error_data(8), 8) + temp_error_data(9));
                                 
-                                obj.errLog.Add(ErrorCode.LTC6804_Failed_CFG_Write, error_string);
+                                obj.eventLog.Add(ErrorCode.LTC6804_Failed_CFG_Write, error_string);
                                 
                             case DC2100A.FW_ERROR_CODE.LTC6804_ADC_CLEAR
                                 error_string = ...
@@ -924,7 +939,7 @@ classdef DC2100A < handle
                                     + " failed to start ADC conversion.";
                                 fail_timestamp = bitshift(temp_error_data(2), 24) + bitshift(temp_error_data(3), 16) + bitshift(temp_error_data(4), 8) + temp_error_data(5);
                                 
-                                obj.errLog.Add(ErrorCode.LTC6804_ADC_CLEAR, error_string, fail_timestamp);
+                                obj.eventLog.Add(ErrorCode.LTC6804_ADC_CLEAR, error_string, fail_timestamp);
                                 
                             case DC2100A.FW_ERROR_CODE.LTC3300_FAILED_CMD_WRITE
                                 error_string = ...
@@ -933,7 +948,7 @@ classdef DC2100A < handle
                                     + ", write value:" + dec2hex(bitshift(temp_error_data(2), 16) + bitshift(temp_error_data(3), 8) + temp_error_data(4) , 4)...
                                     + ", read value:" + dec2hex(bitshift(temp_error_data(5), 16) + bitshift(temp_error_data(6), 8) + temp_error_data(7) , 4);
                                 
-                                obj.errLog.Add(ErrorCode.LTC3300_FAILED_CMD_WRITE, error_string, num2str(obj.Board_Summary_Data(temp_error_data(1)).Volt_Sum, 5)); % 5 here ensures 5 sig figs
+                                obj.eventLog.Add(ErrorCode.LTC3300_FAILED_CMD_WRITE, error_string, num2str(obj.Board_Summary_Data(temp_error_data(1)).Volt_Sum, 5)); % 5 here ensures 5 sig figs
                                 
                             otherwise
                                 error_string = "Bytes: ";
@@ -941,7 +956,7 @@ classdef DC2100A < handle
                                     error_string = error_string ...
                                         + num2str(temp_error_data(byte_num)) + ", ";
                                 end
-                                obj.errLog.Add(ErrorCode.LTC3300_CRC, error_string);
+                                obj.eventLog.Add(ErrorCode.LTC3300_CRC, error_string);
                         end
 %                         disp(num2str(toc - obj.count) + "ms");
 %                         obj.count = toc;
@@ -967,7 +982,7 @@ classdef DC2100A < handle
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
                             % If this is a board we don't know, then this is a failed response
-                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1025,12 +1040,12 @@ classdef DC2100A < handle
                                     
                                     % Create error log entry
                                     if ~strcmp(condition_string, "")
-                                        obj.errLog.Add(ErrorCode.OVUV,...
+                                        obj.eventLog.Add(ErrorCode.OVUV,...
                                             "Board: " + num2str(board_num)...
                                             + " " + condition_string + ". Flags = "...
                                             + dec2hex(temp_ov_flags, 3) + dec2hex(temp_uv_flags, 3));
                                     else
-                                        obj.errLog.Add(ErrorCode.OVUV,...
+                                        obj.eventLog.Add(ErrorCode.OVUV,...
                                             "Board: " + num2str(board_num)...
                                             + " returned from OV/UV" + ". Flags = "...
                                             + dec2hex(temp_ov_flags, 3) + dec2hex(temp_uv_flags, 3));
@@ -1240,7 +1255,7 @@ classdef DC2100A < handle
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
-                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1333,7 +1348,7 @@ classdef DC2100A < handle
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
-                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1421,7 +1436,7 @@ classdef DC2100A < handle
                                 if obj.voltage_timestamp(board_num +1).time_difference > 4
                                     obj.num_times_over_4sec ...
                                         = obj.num_times_over_4sec + 1;
-                                    obj.errLog.Add(ErrorCode.USB_Delayed,...
+                                    obj.eventLog.Add(ErrorCode.USB_Delayed,...
                                         num2str(obj.voltage_timestamp(board_num +1)...
                                         .time_difference) + ":" + num2str(obj.num_times_over_4sec)); % #debugString=buffer
                                 end
@@ -1455,7 +1470,7 @@ classdef DC2100A < handle
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
                             % If this is a board we don't know, then this is a failed response
-                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1533,7 +1548,7 @@ classdef DC2100A < handle
                                 if obj.temperature_timestamp(board_num +1).time_difference > 4
                                     obj.num_times_over_4sec ...
                                         = obj.num_times_over_4sec + 1;
-                                    obj.errLog.Add(ErrorCode.USB_Delayed,...
+                                    obj.eventLog.Add(ErrorCode.USB_Delayed,...
                                         num2str(obj.temperature_timestamp(board_num +1)...
                                         .time_difference) + ":" + num2str(obj.num_times_over_4sec)); % #debugString=buffer
                                 end
@@ -1565,7 +1580,7 @@ classdef DC2100A < handle
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
                             % If this is a board we don't know, then this is a failed response
-                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1594,7 +1609,7 @@ classdef DC2100A < handle
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
                             % If this is a board we don't know, then this is a failed response
-                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1652,7 +1667,7 @@ classdef DC2100A < handle
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
                             % If this is a board we don't know, then this is a failed response
-                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1682,7 +1697,7 @@ classdef DC2100A < handle
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
-                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1727,7 +1742,7 @@ classdef DC2100A < handle
                                 .Set_Read_Register(command, register(ic_num +1));
                             if (obj.LTC3300s(board_num +1, ic_num +1).Get_Error == true)
                                 % Output LTC3300 Error bits to log file
-                                obj.errLog.Add(ErrorCode.LTC3300_Status, ...
+                                obj.eventLog.Add(ErrorCode.LTC3300_Status, ...
                                     "Board: " + num2str(board_num) + ", IC: "...
                                     + num2str(ic_num) + ", Register " ...
                                     + dec2hex(register(ic_num), 4)); % #debugString=buffer
@@ -1753,7 +1768,7 @@ classdef DC2100A < handle
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
                             % If this is a board we don't know, then this is a failed response
-                            obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
+                            obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
                                 DC2100A.REMOVE_LEN(obj.buf_in, length - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
@@ -1925,7 +1940,7 @@ classdef DC2100A < handle
                     obj.buf_in.remove; % Remove the command or first character
                     index = 1;
                     EmergencyStop(obj);
-                    obj.errLog.Add(ErrorCode.EMERGENCY_STOP,...
+                    obj.eventLog.Add(ErrorCode.EMERGENCY_STOP,...
                         "Emergency Stop was sent by the MCU." + newline);
             end
         end
@@ -2109,7 +2124,7 @@ classdef DC2100A < handle
                     ic_config = [true, true];
                 otherwise
                     status = ErrorCode.OUT_OF_BOUNDS;
-                    obj.errLog.Add(ErrorCode.OUT_OF_BOUNDS,...
+                    obj.eventLog.Add(ErrorCode.OUT_OF_BOUNDS,...
                         "Board: " + num2str(board_num),...
                         ". The number of cells specified " + ...
                         + " is outside the allowable range of 4 - 12. Resorting to the Max value.", ...
@@ -2212,7 +2227,7 @@ classdef DC2100A < handle
                 mexStr = mexStr + newline + char(9); % char(9) = \tab
             end
             
-            obj.errLog.Add(ErrorCode.EXCEPTION, mexStr); % Show the exception on the Error Logger app
+            obj.eventLog.Add(ErrorCode.EXCEPTION, mexStr); % Show the exception on the Error Logger app
         end
         
         
@@ -2227,10 +2242,11 @@ classdef DC2100A < handle
     
     % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
     % PUBLIC METHODS
-    % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=   
+    % Main Methods
     methods
         
-        function obj = DC2100A(COMport, errLogApp, varargin)
+        function obj = DC2100A(COMport, eventLogApp, varargin)
             %DC2100A Initiates an instance of DC2100A class that takes
             %the COM port or serial object as an argument.
             %   This Constructor creates a generic serial object with
@@ -2240,10 +2256,10 @@ classdef DC2100A < handle
             %
             %   Inputs:
             %       COMport         : Serial COMM Port e.g 'COM4' or 'COM6'
-            %       errLogApp       : ErrorLog App object. This should be 
+            %       eventLogApp       : ErrorLog App object. This should be 
             %                           activated outside this class by 
             %                           running "app = ErrorLog;" and
-            %                           passing "app" as errLogApp.
+            %                           passing "app" as eventLogApp.
             %       varargin        : Name-Value pairs of input consisting
             %                           of only the following:
             %                           - 'USB_ASYNC' ,true / [false]
@@ -2299,13 +2315,17 @@ classdef DC2100A < handle
                     end
                 end
                 
-                obj.baudRate = 115200;
-                obj.port = COMport;
-                obj.byteOrder = "big-endian";
-                obj.terminator = "LF";
-                obj.stopbits = 1;
+                setUSBDataSizes(obj);
+
                 
                 
+%                 obj.baudRate = 115200;
+%                 obj.port = COMport;
+%                 obj.byteOrder = "big-endian";
+%                 obj.terminator = "LF";
+%                 obj.stopbits = 1;
+                                
+                %{
                 serialAvail = serialportlist("available"); % Get all serial ports currently available
                 serialAll = serialportlist("all");  % Get all serial ports connected
                 if ~(ismember(COMport, serialAvail)) && ~(ismember(COMport, serialAll))
@@ -2327,69 +2347,30 @@ classdef DC2100A < handle
                 elseif ~(ismember(COMport, serialAvail)) && (ismember(COMport, serialAll))
                     warning("Serial Port is still open." + newline ...
                         + "Will attempt to close previously open Serial port now.");
-                    disconnect(obj);
+                    disconnectSerial(obj);
                     return;
                 end
-                
-                if ~isvalid(errLogApp)
-                    obj.errLog = ErrorLog();
-                else
-                    obj.errLog = errLogApp;
-                end
-                
-                setUSBDataSizes(obj);
-                
-                obj.serial = serialport(obj.port, obj.baudRate);
-                obj.serial.ByteOrder = obj.byteOrder;
+                %}
 
                 
-                % Check to see that the MCU has the correct FW
-                [status, helloStr] = getHelloStr(obj);
-                if status == ErrorCode.COMMTEST_DATA_MISMATCH
-                    error("There has been a data mismatch when testing communication with FW.");
-                elseif status == ErrorCode.UNKNOWN_ERROR
-                    error("MCU doesn't seem to be loaded with the correct FW.");
-                elseif status == ErrorCode.COMM_TIMEOUT
-                    error("There has been a COMM Timeout error. Perhaps FW on MCU is not correct or running?");
+                % If not able to find an Event Logger object. create a new
+                % one
+                if nargin < 2 || isempty(eventLogApp) || ~isvalid(eventLogApp)
+                    obj.eventLog = EventLogger();
                 else
-                    disp("MCU FW Confirmed. Test String = '" + helloStr + "'");
+                    obj.eventLog = eventLogApp;
                 end
                 
-                % Check to see if the DC2100A board is connected
-                [status, ModelNum] = getModelNum(obj);
-                if status == ErrorCode.COMMTEST_DATA_MISMATCH
-                    error("There has been a data mismatch when testing communication with FW.");
-                elseif status == ErrorCode.COMM_DC2100A_NOT_DETECTED
-                    error("The **DC2100A BOARD** is either not connected or not communicating.");
-                elseif status == ErrorCode.COMM_TIMEOUT
-                    warning("There has been a TIMEOUT while trying to read Model_Num");
-                elseif status == ErrorCode.NO_ERROR
-                    disp("Model Num Confirmed. Test String = '" + ModelNum + "'");
-                    obj = System_Init(obj, true);
-                    
-                    if obj.useUSBTerminator == false
-                    configureCallback(obj.serial, "byte",...
-                        obj.serial.NumBytesAvailable ,@obj.USBDataIn_Callback);
-                    
-                    elseif obj.useUSBTerminator == true
-                        configureCallback(obj.serial, "terminator" ,@obj.USBDataIn_Callback); %, 'ErrorOccuredFcn', @testErr);
-                    end
-                    
-                    obj.USBTimer.ExecutionMode = 'fixedSpacing';
-                    obj.USBTimer.Period = DC2100A.USB_COMM_TIMER_INTERVAL / DC2100A.MS_PER_SEC;
-%                     obj.USBTimer.StartDelay = 1;
-%                     obj.USBTimer.TasksToExecute = 1000;
-                    obj.USBTimer.StopFcn = @obj.USBTimerStopped;
-                    obj.USBTimer.TimerFcn = @obj.USBDataOut_Timer_Callback;
-                    obj.USBTimer.ErrorFcn = {@obj.Handle_Exception, []};
-                    % Start COMM out timer
-                    start(obj.USBTimer);
-                    
-                else
-                    disp("Returned Error from getModelNum = " + status);
-                end
+           
+                connectSerial(obj, COMport);
+
+%                 obj.serial = serialport(obj.port, obj.baudRate);
+%                 obj.serial.ByteOrder = obj.byteOrder;
+
+                
+               
             catch MEX
-                disconnect(obj);
+                disconnectSerial(obj);
                 rethrow(MEX);
             end
         end
@@ -2410,7 +2391,7 @@ classdef DC2100A < handle
             if nargin > 2
                status = ConfigConnectedCells(obj, board_num, num_cells);
                if status ~= ErrorCode.NO_ERROR
-                   obj.errLog.Add(status,...
+                   obj.eventLog.Add(status,...
                     "Board: " + num2str(board_num),...
                     ". Unable to write Cell Present configuration.");
                end
@@ -2449,7 +2430,7 @@ classdef DC2100A < handle
                 validBoard = true;
             else
                 validBoard = false;
-                obj.errLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
+                obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                     "Board: " + num2str(board_num),...
                     ". The selected board is not available or invalid.");
             end
@@ -2542,7 +2523,7 @@ classdef DC2100A < handle
             [status, balance_timer] = Validate_Balance_Duration(obj, balance_timer);
             
             if status ~= ErrorCode.NO_ERROR
-                obj.errLog.Add(status, "Error occured. Could not validate durations for write.");
+                obj.eventLog.Add(status, "Error occured. Could not validate durations for write.");
                 return;
             end
             
@@ -2654,8 +2635,10 @@ classdef DC2100A < handle
             %                               in a vector ranging from
             %                               1 to (LTC3300.NUM_CELLS * DC2100A.NUM_LTC3300), 
             %                               i.e. [cells(1-6), cells(7-12)].
-            %                               This input is only valid when command =
-            %                               LTC3300.Command.Write_Balance.
+            %   Human "Balance Actions" include : 
+            %       - LTC3300.Cell_Balancer.BALANCE_ACTION.None         = 0
+            %       - LTC3300.Cell_Balancer.BALANCE_ACTION.Discharge    = 1
+            %       - LTC3300.Cell_Balancer.BALANCE_ACTION.Charge       = 2
             
             ltc3300_Command = LTC3300.Command.Write_Balance;
             
@@ -2930,13 +2913,14 @@ classdef DC2100A < handle
             num_currents = length(current);
             if num_currents == DC2100A.MAX_CELLS
                 curr2Send = current;
+                obj.Currents(board_num, :) = current(1, logical(bal.cellPresent(1, :)));
                 
             elseif num_currents == obj.numCells(board_num +1)
                 curr2Send = zeros(DC2100A.MAX_CELLS, 1);
                 curr2Send(obj.cellPresent(board_num +1, :)) = current;
                 
             elseif num_currents < DC2100A.MIN_CELLS || num_currents > DC2100A.MAX_CELLS
-                obj.errLog.Add(ErrorCode.OUT_OF_BOUNDS,...
+                obj.eventLog.Add(ErrorCode.OUT_OF_BOUNDS,...
                     "Board: " + num2str(board_num),...
                     ". The number of current values being sent to the balancer" + ...
                     + " is outside the allowable range of 4 - 12.", ...
@@ -2984,10 +2968,11 @@ classdef DC2100A < handle
         
         
         function disconnect(obj)
+            %DISCONNECT Disconnects and deletes device's serial port and deletes the device object
             if obj.isBalancing == true
                write(obj.serial, DC2100A.USB_PARSER_EMERGENCY_STOP_COMMAND, 'char');
                disp("Sent Emergency Stop Command since balancers were still on. ");
-               obj.errLog.Add(ErrorCode.EMERGENCY_STOP, ...
+               obj.eventLog.Add(ErrorCode.EMERGENCY_STOP, ...
                    "Emergency Stop Triggered while trying to disconnect" ...
                    + " board during balancing." + newline + "Command Sent.");
             end
@@ -3011,9 +2996,9 @@ classdef DC2100A < handle
                 end
                 flush(obj.serial, 'input');
                 disp("DC2100A Board disconnected")
-                evalin('caller', [['clear '], s ,';']);
             end
             
+            evalin('caller', [['clear '], s ,';']);
 %             profile viewer
 %             profile off;
         end
@@ -3021,6 +3006,173 @@ classdef DC2100A < handle
     end
     
     
+    % Serial Connection Methods
+    methods
+        function set.baudRate(obj, value)
+            obj.baudRate = value;
+            obj.serial.BaudRate = value;
+        end
+        
+        function set.dataBits(obj, value)
+            obj.dataBits = value;
+            obj.serial.DataBits = value;
+        end
+        
+        function set.byteOrder(obj, value)
+            obj.byteOrder = value;
+            obj.serial.ByteOrder = value;
+        end
+        
+        
+        function reply = connectSerial(obj, port, varargin)
+            %connect2Serial Connects to a serial port
+            
+            if isempty(obj.serial)
+                
+                % Varargin Evaluation
+                % Code to implement user defined values
+                param = struct(...
+                    'baudRate',       115200, ...
+                    'byteOrder',      'big-endian',...
+                    'stopBits',       1, ...
+                    'terminator',     'LF', ...
+                    'timeout',         10);
+                
+                % read the acceptable names
+                paramNames = fieldnames(param);
+                
+                % Ensure variable entries are pairs
+                nArgs = length(varargin);
+                if round(nArgs/2)~=nArgs/2
+                    error('Array_ELoad Class needs propertyName/propertyValue pairs')
+                end
+                
+                for pair = reshape(varargin,2,[]) %# pair is {propName;propValue}
+                    inpName = pair{1}; %# make case insensitive
+                    
+                    if any(strcmpi(inpName,paramNames))
+                        %# overwrite options. If you want you can test for the right class here
+                        %# Also, if you find out that there is an option you keep getting wrong,
+                        %# you can use "if strcmp(inpName,'problemOption'),testMore,end"-statements
+                        param.(inpName) = pair{2};
+                    else
+                        error('%s is not a recognized parameter name',inpName)
+                    end
+                end
+                
+                obj.port = upper(port);
+                s = serialport(obj.port, param.baudRate); %Creates a serial port object
+                obj.serial = s;
+                
+                flush(obj.serial);
+                
+                obj.baudRate    = param.baudRate;
+                obj.byteOrder   = param.byteOrder;
+                obj.stopbits    = param.stopBits;
+                
+                
+                % Check to see that the MCU has the correct FW
+                [status, helloStr] = getHelloStr(obj);
+                if status == ErrorCode.COMMTEST_DATA_MISMATCH
+                    error("There has been a data mismatch when testing communication with FW.");
+                elseif status == ErrorCode.UNKNOWN_ERROR
+                    error("MCU doesn't seem to be loaded with the correct FW.");
+                elseif status == ErrorCode.COMM_TIMEOUT
+                    error("There has been a COMM Timeout error. Perhaps FW on MCU is not correct or running?");
+                else
+                    disp("MCU FW Confirmed. Test String = '" + helloStr + "'");
+                end
+                
+                % Check to see if the DC2100A board is connected
+                [status, ModelNum] = getModelNum(obj);
+                if status == ErrorCode.COMMTEST_DATA_MISMATCH
+                    error("There has been a data mismatch when testing communication with FW.");
+                elseif status == ErrorCode.COMM_DC2100A_NOT_DETECTED
+                    error("The **DC2100A BOARD** is either not connected or not communicating.");
+                elseif status == ErrorCode.COMM_TIMEOUT
+                    warning("There has been a TIMEOUT while trying to read Model_Num");
+                elseif status == ErrorCode.NO_ERROR
+                    disp("Model Num Confirmed. Test String = '" + ModelNum + "'");
+                    obj = System_Init(obj, true);
+                    
+                    if obj.useUSBTerminator == false
+                        configureCallback(obj.serial, "byte",...
+                            obj.serial.NumBytesAvailable ,@obj.USBDataIn_Callback);
+                        
+                    elseif obj.useUSBTerminator == true
+                        configureCallback(obj.serial, "terminator" ,@obj.USBDataIn_Callback); %, 'ErrorOccuredFcn', @testErr);
+                    end
+                    
+                    obj.USBTimer.ExecutionMode = 'fixedSpacing';
+                    obj.USBTimer.Period = DC2100A.USB_COMM_TIMER_INTERVAL / DC2100A.MS_PER_SEC;
+                    %                     obj.USBTimer.StartDelay = 1;
+                    %                     obj.USBTimer.TasksToExecute = 1000;
+                    obj.USBTimer.StopFcn = @obj.USBTimerStopped;
+                    obj.USBTimer.TimerFcn = @obj.USBDataOut_Timer_Callback;
+                    obj.USBTimer.ErrorFcn = {@obj.Handle_Exception, []};
+                    % Start COMM out timer
+                    start(obj.USBTimer);
+                    
+                else
+                    disp("Returned Error from getModelNum = " + status);
+                end
+                
+                reply = "Connected";
+                
+            else
+                reply = "Already Connected";
+            end
+        end
+        
+        function reply = disconnectSerial(obj)
+            %DISCONNECTSERIAL Disconnects and deletes device's serial port ONLY.
+            %   Critical components are also shutdown to avoid the 
+            %   inability to solve issues that might arise after disconnection.
+            
+            if obj.isBalancing == true
+               write(obj.serial, DC2100A.USB_PARSER_EMERGENCY_STOP_COMMAND, 'char');
+               disp("Sent Emergency Stop Command since balancers were still on. ");
+               obj.eventLog.Add(ErrorCode.EMERGENCY_STOP, ...
+                   "Emergency Stop Triggered while trying to disconnect" ...
+                   + " board during balancing." + newline + "Command Sent.");
+            end
+            
+            if ~isnumeric(obj.USBTimer)
+                if isvalid(obj.USBTimer)
+                    if strcmpi(obj.USBTimer.Running, 'on')
+                        stop(obj.USBTimer);
+                    end
+                    delete(obj.USBTimer);
+                end
+            end
+            
+            if ~isnumeric(obj.serial)
+                availBytes = obj.serial.NumBytesAvailable;
+                if availBytes ~= 0
+                    disp("Num Bytes Available in serial buffer = " ...
+                        + availBytes + " bytes.")
+                    disp("Serial Buffer Cleared.");
+                end
+                flush(obj.serial, 'input');
+                disp("DC2100A Board disconnected")
+            end
+            
+            obj.serial = [];
+            reply = "Disconnected";
+        end
+        
+        function response = serialStatus(obj)
+            %serialStatus Reports if the serial port is "connected" or
+            %"disconnected".
+            if isempty(obj.serial)
+                response = "Disconnected";
+            else
+                if isvalid(obj.serial)
+                    response = "Connected";
+                end
+            end
+        end
+    end
 end
 
 
