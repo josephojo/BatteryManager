@@ -154,8 +154,10 @@ else
     
     if ~isempty(testSettings) && isfield(testSettings, 'cellConfig')
         cellConfig = testSettings.cellConfig;
-        if strcmpi(cellConfig, "series")
+        if strcmpi(cellConfig, "single")
             testSettings.voltMeasDev = "mcu";
+        elseif strcmpi(cellConfig, "series")
+            testSettings.voltMeasDev = "balancer";
         end
     end
     
@@ -180,6 +182,10 @@ else
             end
         end
     end
+end
+
+if ~strcmpi(cellConfig, "single")
+    load(dataLocation + "007PackParam.mat", 'packParam');
 end
 
 %% TC Info

@@ -711,16 +711,17 @@ classdef DC2100A < handle
 %             obj.count = obj.count+1;
 %             disp("Count " + obj.count + ": " + num2str(toc(xx)) + "ms");    
 
-            if obj.Val == 50
-                ind = 1:DC2100A.MAX_CELLS; s="";
-                for i = ind(logical(obj.cellPresent(1, :)))
-                    s = s+sprintf("Volt[%d] = %.4f\t", i, obj.Voltages(1, i));
-                end
-                fprintf(s + newline);
-                obj.Val = 0;
-            else
-                obj.Val = obj.Val + 1;
-            end
+            % Print Voltages every 1s
+%             if obj.Val == 50
+%                 ind = 1:DC2100A.MAX_CELLS; s="";
+%                 for i = ind(logical(obj.cellPresent(1, :)))
+%                     s = s+sprintf("Volt[%d] = %.4f\t", i, obj.Voltages(1, i));
+%                 end
+%                 fprintf(s + newline);
+%                 obj.Val = 0;
+%             else
+%                 obj.Val = obj.Val + 1;
+%             end
 
         end
         

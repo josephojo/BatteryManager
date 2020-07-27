@@ -42,6 +42,9 @@ if ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.tempMeasDe
         thermoData = read(thermo,'holdingregs',min(tempChnls), readCount);
         thermoData = thermoData(ismember(readChnls, tempChnls))/10;
         
+        % Temporary
+        thermoData(end) = thermoData(end - 1);
+        
     end
     
 elseif ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.tempMeasDev, "ardMod")
