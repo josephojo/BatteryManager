@@ -60,7 +60,15 @@ y(soc_indy, 1) = SOC;
 y(ts_indy, 1) = Ts;
 
 % Compute Voltage
-curr = (u(1:NUMCELLS, 1) + u(end, 1)); % Equivalent to balCurr + PsuCurr
+% Get Actual Current Through cells
+balCurr = u(1:NUMCELLS, 1);
+psuCurr = u(end, 1);
+balActual_dchrg = predMdl.Curr.T_dchrg * (balCurr(:) .* (balCurr(:) > 0));
+balActual_chrg = predMdl.Curr.T_chrg * (balCurr(:) .* (balCurr(:) < 0));
+balActual = balActual_chrg + balActual_dchrg;
+curr = psuCurr + balActual(:); % Actual Current in each cell
+% curr = psuCurr + balCurr;
+
 
 % Useful for when model has changing Rs wrt temp and SOC
 % Z = lookupRS_OCV(predMdl.lookupTbl, SOC(:), T_avg(:), curr(:)); % "(:)" forces vector to column vector

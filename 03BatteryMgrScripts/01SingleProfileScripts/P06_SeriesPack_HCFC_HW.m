@@ -237,6 +237,13 @@ try
     socMdl.B1 = B1;
     socMdl.B2 = B2;
     
+    % Transformation matrix to emulate the actual current going through each
+    % battery during balancing (charge and discharge). 
+    T_chrg = eye(NUMCELLS) - (repmat(1/NUMCELLS, NUMCELLS) / chrgEff); % Current Transformation to convert primary cell currents to net cell currents to each cell during charging
+    T_dchrg =  eye(NUMCELLS) - (repmat(1/NUMCELLS, NUMCELLS) * dischrgEff); % Current Transformation to convert primary cell currents to net cell currents to each cell during discharging
+    currMdl.T_chrg = T_chrg;
+    currMdl.T_dchrg = T_dchrg;
+    
     % Lithium Plating Lookup table (From "LiPlateRate.mat")
     load(dataLocation + 'LiPlateRate.mat'); % Lithium plating rate
     [Xmesh, Ymesh] = meshgrid(LiPlateCurr, LiPlateSOC);
@@ -247,6 +254,7 @@ try
     predMdl.Volt = voltMdl;
     predMdl.Temp = tempMdl;
     predMdl.SOC = socMdl;
+    predMdl.Curr = currMdl;
     predMdl.LPR = lprMdl;
     % predMdl.lookupTbl = battMdl.Lookup_tbl; % Using the lookup table from plant model
 catch ME
@@ -515,8 +523,15 @@ p = data.PredictionHorizon;
 %         Y(i,:) = myOutputFcn(X(i,:)',U(i,:)',p1, p2)';
 %     end
 
-curr = U(2:p+1,1:NUMCELLS) + U(2:p+1, end); % Equivalent to balCurr + PsuCurr
+balCurr = U(2:p+1,1:NUMCELLS);
+psuCurr =  U(2:p+1, end);
 
+balActual_dchrg = predMdl.Curr.T_dchrg * (balCurr' .* (balCurr' > 0));
+balActual_chrg = predMdl.Curr.T_chrg * (balCurr' .* (balCurr' < 0));
+balActual = balActual_chrg + balActual_dchrg;
+curr = psuCurr + balActual'; % Actual Current in each cell
+
+% curr = psuCurr + balCurr;
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Get the Objective vectors in pred horizon (2:p+1)
@@ -563,7 +578,7 @@ socDev = devMat * chrgSOC';
 % Objective Function Weights (0, 1, 5, 20 etc))
 % ---------------------------------------------------------------------
 A = 0.05; %0.85; % SOC Tracking and SOC Deviation
-A_dev = 100 * max(abs(socDev(1, :))) + 1;
+A_dev = 10; % 100 * max(abs(socDev(1, :))) + 1;
 B = 2; % Chg Time
 C = 1; % Temp Rise rate
 D = 5; % Li Plate Rate

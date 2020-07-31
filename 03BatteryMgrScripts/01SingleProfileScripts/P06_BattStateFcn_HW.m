@@ -33,7 +33,15 @@ v2_ind = 1+(xIND.V2-1)*NUMCELLS:xIND.V2*NUMCELLS;
 tc_ind = 1+(xIND.Tc-1)*NUMCELLS:xIND.Tc*NUMCELLS;
 ts_ind = 1+(xIND.Ts-1)*NUMCELLS:xIND.Ts*NUMCELLS;
 
-curr = (u(1:NUMCELLS, 1) + u(end, 1)); % Equivalent to balCurr + PsuCurr
+% Get Actual Current Through cells
+balCurr = u(1:NUMCELLS, 1);
+psuCurr = u(end, 1);
+balActual_dchrg = predMdl.Curr.T_dchrg * (balCurr(:) .* (balCurr(:) > 0));
+balActual_chrg = predMdl.Curr.T_chrg * (balCurr(:) .* (balCurr(:) < 0));
+balActual = balActual_chrg + balActual_dchrg;
+curr = psuCurr + balActual(:); % Actual Current in each cell
+% curr = psuCurr + balCurr;
+
 
 Tf = predMdl.Temp.Tf;
 
