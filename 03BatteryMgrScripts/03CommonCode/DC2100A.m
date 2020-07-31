@@ -2954,6 +2954,53 @@ classdef DC2100A < handle
         end
         
         
+        function SetBalanceCharges(obj, board_num, charges)
+            
+            if CheckSelectBoard(obj, board_num) == false, return; end
+            
+            num_charges = length(charges);
+            if num_charges == DC2100A.MAX_CELLS
+                charges2Send = charges;
+                obj.Currents(board_num, :) = charges(1, logical(bal.cellPresent(1, :)));
+                
+            elseif num_charges == obj.numCells(board_num +1)
+                charges2Send = zeros(DC2100A.MAX_CELLS, 1);
+                charges2Send(obj.cellPresent(board_num +1, :)) = charges;
+                
+            elseif num_charges < DC2100A.MIN_CELLS || num_charges > DC2100A.MAX_CELLS
+                obj.eventLog.Add(ErrorCode.OUT_OF_BOUNDS,...
+                    "Board: " + num2str(board_num),...
+                    ". The number of current values being sent to the balancer" + ...
+                    + " is outside the allowable range of 4 - 12.", ...
+                    num2str(num_charges));
+            end
+            
+            dataString = DC2100A.USB_PARSER_ALGORITHM_COMMAND + "W";
+            
+%             % #SingleBoard - Currently Defaulted to "DC2100A_NUCLEO_BOARD_NUM" in firmware
+%             dataString = dataString + dec2hex(board_num, 2); 
+            
+            % Create Balance Actions and associate their respective current
+            % values. These Balance Actions do not need to converted to
+            % balance commands since they are not being sent directly to
+            % the LTC3300s but instead, to a low level controller.
+            
+            actions = zeros(1, DC2100A.MAX_CELLS);
+            dchrg_ind = charges2Send > 0; % Negative values are charging currents, positive values discharging
+            actions(dchrg_ind) = 1; % Discharge Action 
+            
+            actions2Send = bin2dec(num2str(flip(actions))); % flip cuz bin2dec takes the array from the right to left instead of left to right
+            
+            curr2Send2 = abs(charges2Send) * DC2100A.MA_PER_A * obj.sTime_MPC; % Send in terms of capacity (mAs) in 2 bytes per cell current
+            
+            dataString = dataString + string(dec2hex(actions2Send, 4));
+            dataString = dataString + strjoin(string(dec2hex(curr2Send2, 4)), "");
+            
+            obj.buf_out.add(dataString);
+            
+        end
+
+        
         function EmergencyStop(obj)
             if isvalid(obj.USBTimer)
                 if strcmpi(obj.USBTimer.Running, 'on')
