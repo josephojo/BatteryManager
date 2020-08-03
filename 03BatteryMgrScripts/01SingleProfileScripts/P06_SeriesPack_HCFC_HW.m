@@ -92,21 +92,37 @@ cellData.MIN_CELL_VOLT = MIN_CELL_VOLT;
 cellData.CAP = CAP;
 
 
-xIND.SOC    = 1;
-xIND.V1     = 2;
-xIND.V2     = 3;
-xIND.Tc     = 4;
-xIND.Ts     = 5;
+xSOC    = 1;
+xV1     = 2;
+xV2     = 3;
+xTc     = 4;
+xTs     = 5;
 
-yIND.SOC    = 1;
-yIND.Volt   = 2;
-yIND.Ts     = 3;
+ySOC    = 1;
+yVolt   = 2;
+yTs     = 3;
+
+xIND.SOC    = 1+(xSOC-1)*NUMCELLS:xSOC*NUMCELLS;
+xIND.V1     = 1+(xV1-1)*NUMCELLS:xV1*NUMCELLS;
+xIND.V2     = 1+(xV2-1)*NUMCELLS:xV2*NUMCELLS;
+xIND.Tc     = 1+(xTc-1)*NUMCELLS:xTc*NUMCELLS;
+xIND.Ts     = 1+(xTs-1)*NUMCELLS:xTs*NUMCELLS;
+
+yIND.SOC    = 1+(ySOC-1)*NUMCELLS:ySOC*NUMCELLS;
+yIND.Volt   = 1+(yVolt-1)*NUMCELLS:yVolt*NUMCELLS;
+yIND.Ts     = 1+(yTs-1)*NUMCELLS:yTs*NUMCELLS;
 
 indices.x = xIND;
 indices.y = yIND;
 
 
 TARGET_SOC = 0.98;
+LPR_Target = 50;
+
+% Balance Efficiencies
+chrgEff = 0.774;
+dischrgEff = 0.651;
+
 Tf = thermoData(1); % Ambient Temp
 
 
@@ -118,7 +134,11 @@ nx = numStatesPerCell*NUMCELLS; % Number of states
 ny = numOutputsPerCell*NUMCELLS; % Number of outputs
 nu = NUMCELLS + 1; % Number of inputs. In this case, current for each cell + PSU current
 
-sampleTime = 1; % 0.5; % Sample time [s]
+indices.nx = nx;
+indices.ny = ny;
+indices.nu = nu;
+
+sampleTime = 4; % 0.5; % Sample time [s]
 prevTime = 0; prevElapsed = 0;
 
 balBoard_num = 0; % ID for the main balancer board
@@ -142,6 +162,7 @@ battData.Cap            = CAP;
 battData.Cost = 0;
 battData.timeLeft = zeros(1, NUMCELLS);
 battData.ExitFlag = 0;
+battData.Iters = 0;
 battData.balCurr = zeros(1, NUMCELLS);
 battData.optCurr = zeros(1, NUMCELLS);
 battData.optPSUCurr = zeros(1, 1);
@@ -282,8 +303,8 @@ try
     % Add Manipulated variable constraints
     % Small Rates affect speed a lot
     for i = 1:NUMCELLS
-        mpcObj.MV(i).Max =  MAX_BAL_CURR;      mpcObj.MV(i).RateMax =  0.5; % MAX_CELL_CURR;
-        mpcObj.MV(i).Min =  -MAX_BAL_CURR;     mpcObj.MV(i).RateMin = -0.5; % -2; % -6
+        mpcObj.MV(i).Max =  MAX_BAL_CURR;      mpcObj.MV(i).RateMax =  1.0; % MAX_CELL_CURR;
+        mpcObj.MV(i).Min =  -MAX_BAL_CURR;     mpcObj.MV(i).RateMin = -1.0; % -2; % -6
     end
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;
@@ -312,12 +333,13 @@ try
     % Add dynamic model for nonlinear MPC
     mpcObj.Model.StateFcn = @(x, u, p1, p2, p3, p4)...
         P06_BattStateFcn_HW(x, u, p1, p2, p3, p4);
-    % mpcObj.Jacobian.StateFcn = @(x,u,p1, p2, p3, p4) ...
-    %     myStateJacobian(x, u, p1, p2, p3, p4);
+    mpcObj.Jacobian.StateFcn = @(x,u,p1, p2, p3, p4) ...
+        myStateJacobian(x, u, p1, p2, p3, p4);
     
     mpcObj.Model.OutputFcn = @(x,u, p1, p2, p3, p4) ...
         P06_OutputFcn_HW(x, u, p1, p2, p3, p4); % SOC, Volt, Ts
-    % mpcObj.Jacobian.OutputFcn = @(x,u,p1, p2, p3, p4) ... ;
+    mpcObj.Jacobian.OutputFcn = @(x,u,p1, p2, p3, p4) ... 
+        myOutputJacobian(x, u, p1, p2, p3, p4);
     
     mpcObj.Optimization.CustomCostFcn = @(X,U,e,data, p1, p2, p3, p4)...
         myCostFunction(X, U, e, data, p1, p2, p3, p4);
@@ -341,8 +363,8 @@ try
     
     
     % SOC tracking, LPR tracking, and temp rise rate cuz refs have to equal number of outputs
-    references = [repmat(TARGET_SOC, 1, NUMCELLS), repmat(50, 1, NUMCELLS),...
-        repmat(3, 1, NUMCELLS)];
+    references = [repmat(TARGET_SOC, 1, NUMCELLS), repmat(LPR_Target, 1, NUMCELLS),...
+         repmat(3, 1, NUMCELLS)];
     
     u0 = [battData.curr, battData.optPSUCurr];
     
@@ -353,13 +375,11 @@ end
 
 %% Extended Kalman Filter Configuration
 ekf = extendedKalmanFilter(@P06_BattStateFcn_HW, @P06_OutputFcn_HW, xk);
-zCov = repmat([0.02, 0.08, 0.01], NUMCELLS, 1); 
+zCov = repmat([0.02, 0.08, 0.01], NUMCELLS, 1); % Measurement Noise covariance (assuming no cross correlation)
 ekf.MeasurementNoise = diag(zCov(:));
 ekf.ProcessNoise = 0.05;
 
 %% MPC Simulation Loop
-
-close all
 
 timer = tic;
 
@@ -381,13 +401,24 @@ try
     
     
     sTime = [];
+    reset(r); 
     while max(xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) <= TARGET_SOC)
+        % Get Elapsed Time
+        tElapsed_MPC = toc(timer);
+        
+        idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MAX_CELL_CURR));
+        SOC_Target = xk(xIND.SOC) + (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC - xk(xIND.SOC, 1));
+        references = [SOC_Target(:)', repmat(LPR_Target, 1, NUMCELLS),...
+             repmat(3, 1, NUMCELLS)];
+
+        
         % Run the MPC controller
         [u,~,mpcinfo] = nlmpcmove(mpcObj, xk, u,...
             references,[], options); % (:,idx-1)
         
         optCurr = u; % u<0 == Charging, u>0 == discharging
         cost = mpcinfo.Cost;
+        iters = mpcinfo.Iterations;
         
         % Balancer and PSU Current
         balCurr = optCurr(1:NUMCELLS);
@@ -402,11 +433,6 @@ try
         % send balance charges to balancer
         bal.SetBalanceCharges(balBoard_num, balCurr*sampleTime); % Send charges in As
         
-        
-        % Get Elapsed Time
-        tElapsed_MPC = toc(timer);
-        
-        dt = tElapsed_MPC - prevElapsed;
         
         temp = thermoData(2:end);
         LPR = lookup2D( predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
@@ -433,15 +459,7 @@ try
         
         xk = CorrectedState';
         xk = xk(:);
-        
-        % Remaining Charge time
-        minCurr = optPSUCurr + battData.balCurr(end, :);
-        if max(u <= 0.01) == 1 % if any member of u is 0. u is current of the cells
-            minCurr = 0.01; % Make u a small value if it is zero
-        end
-        timeLeft = ((TARGET_SOC - states(3, :)) .* battMdl.Cap * 3600)./ abs(minCurr);
-        battData.timeLeft = [battData.timeLeft ; timeLeft];
-        
+                
         
         tempStr = ""; voltStr = ""; currStr = ""; socStr = ""; psuStr = "";  balStr = "";
         MPCStr = ""; LPRStr = "";
@@ -452,7 +470,7 @@ try
             voltStr = voltStr + sprintf("Volt %d = %.4f V\t", i, states(1,i));
             LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\t", i, states(7, i));
             balStr = balStr + sprintf("Bal %d = %.4f A\t", i, battData.balCurr(end,i));
-            currStr = currStr + sprintf("Curr %d = %.4f\t", i, optCurr(i));
+            currStr = currStr + sprintf("Curr %d = %.4f\t", i, battData.curr(end,i));
             socStr = socStr + sprintf("SOC %d = %.4f\t\t", i, battData.SOC(end, i));
         end
         
@@ -461,14 +479,15 @@ try
             voltStr = voltStr + sprintf("Volt %d = %.4f V\n", i, states(1,i));
             LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\n", i, states(7, i));
             balStr = balStr + sprintf("Bal %d = %.4f A\n", i, battData.balCurr(end,i));
-            currStr = currStr + sprintf("Curr %d = %.4f\n", i, optCurr(i));
+            currStr = currStr + sprintf("Curr %d = %.4f\n", i, battData.curr(end,i));
             socStr = socStr + sprintf("SOC %d = %.4f\n", i, battData.SOC(end, i));
         end
         psuStr = psuStr + sprintf("PSUCurr = %.4f A", optPSUCurr(1));
         
         disp(newline)
         disp(num2str(tElapsed_MPC,'%.2f') + " seconds");
-        disp("STime: " + (tElapsed_MPC - prevElapsed) + " Seconds."); sTime = [sTime; tElapsed_MPC - prevElapsed];
+        sTime = [sTime; tElapsed_MPC - prevElapsed];
+        disp("STime: " + sTime(end, 1) + " Seconds."); 
         fprintf(tempStr + newline);
         fprintf(voltStr + newline);
         fprintf(LPRStr + newline);
@@ -482,7 +501,7 @@ try
         ifcurr = optCurr(1:NUMCELLS) + optCurr(end);
         if (max(ifcurr > 0 & xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) <= 0.01))...
                 || (max(ifcurr < 0 & xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) >= 0.99))
-            disp("Test Completed After: " + tElapsed_MPC + " seconds.")
+            disp("Test Overcharged after: " + tElapsed_MPC + " seconds.")
             break;
         elseif endFlag == true
             disp("An error or Stop test request has occured." + newline...
@@ -493,6 +512,8 @@ try
         prevElapsed = tElapsed_MPC;
         waitfor(r);
     end
+    disp("Test Completed After: " + tElapsed_MPC + " seconds.")
+
 catch ME
     dataQueryTimerStopped();
     script_handleException;
@@ -500,7 +521,6 @@ end
 
 %% Supporting Functions
 % Custom Cost Function
-
 function J = myCostFunction(X, U, e, data, p1, p2, p3, p4)
 % Parameters (p#)
 % dt          = p1;   % Algorithm sample time
@@ -512,7 +532,6 @@ NUMCELLS = cellData.NUMCELLS;
 % cap = cellData.CAP; % Capacity of all cells
 
 xIND = indices.x;
-soc_ind = 1+(xIND.SOC-1)*NUMCELLS:xIND.SOC*NUMCELLS;
 
 devMat = predMdl.SOC.devMat;
 
@@ -520,18 +539,21 @@ lprMdl = predMdl.LPR;
 
 p = data.PredictionHorizon;
 %     for i=1:p+1
-%         Y(i,:) = myOutputFcn(X(i,:)',U(i,:)',p1, p2)';
+%         Y(i,:) = P06_OutputFcn(X(i,:)',U(i,:)',p1, p2)';
 %     end
 
 balCurr = U(2:p+1,1:NUMCELLS);
 psuCurr =  U(2:p+1, end);
 
-balActual_dchrg = predMdl.Curr.T_dchrg * (balCurr' .* (balCurr' > 0));
-balActual_chrg = predMdl.Curr.T_chrg * (balCurr' .* (balCurr' < 0));
+% curr = psuCurr + balCurr;
+
+% % Compute Actual Current Through cells
+logicalInd = balCurr' >= 0;
+balActual_dchrg = predMdl.Curr.T_dchrg * (balCurr' .* (logicalInd));
+balActual_chrg = predMdl.Curr.T_chrg * (balCurr' .* (~logicalInd));
 balActual = balActual_chrg + balActual_dchrg;
 curr = psuCurr + balActual'; % Actual Current in each cell
 
-% curr = psuCurr + balCurr;
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Get the Objective vectors in pred horizon (2:p+1)
@@ -539,7 +561,7 @@ curr = psuCurr + balActual'; % Actual Current in each cell
 % --------------------------------------------------------------------------------
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%  Charge SOC  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
-chrgSOC = X(2:p+1, 1+(xIND.SOC-1)*NUMCELLS:xIND.SOC*NUMCELLS);
+chrgSOC = X(2:p+1, xIND.SOC);
 
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%  SOC Deviation  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -550,7 +572,7 @@ socDev = devMat * chrgSOC';
 %{
     % Chg Time = (Change in SOC between each timestep x capacity) / current
     futureSOCs = chrgSOC; % SOCs only in the pred horizon
-    currentSOCs = X(1:p, 1+(xIND.SOC-1)*NUMCELLS : xIND.SOC*NUMCELLS); % SOCs in the current time and pred horizon minus furthest SOC
+    currentSOCs = X(1:p, xIND.SOC); % SOCs in the current time and pred horizon minus furthest SOC
 %     chrgTime = zeros(size(futureSOCs)); % Initialize chag time to zeros
     futureCurr = curr;
     idx = futureCurr <= MIN_CHRG_CURR; % Make members of U a small value if it is zero
@@ -561,8 +583,8 @@ socDev = devMat * chrgSOC';
 % %%%%%%%%%%%%%%%%%%  Temp Rise Rate calculation  %%%%%%%%%%%%%%%%%%%%%
 %{
     % Using Surf Temp since it is what we can measure
-    futureTs = X(2:p+1, 1+(xIND.Ts-1)*NUMCELLS : xIND.Ts*NUMCELLS); % Ts representing future single timestep SOC
-    currentTs = X(1:p, 1+(xIND.Ts-1)*NUMCELLS : xIND.Ts*NUMCELLS);
+    futureTs = X(2:p+1, xIND.Ts); % Ts representing future single timestep SOC
+    currentTs = X(1:p, xIND.Ts);
 %     tempRate = zeros(size(futureTs)); % Initialize temp. rate to zeros
     tempRate = futureTs - currentTs; % Sum each column (i.e. each value in pred horizon)
 %}
@@ -571,14 +593,14 @@ socDev = devMat * chrgSOC';
     LPRind = curr < 0;
     interpCurr = curr .* (LPRind);
     LiPlateRate = qinterp2(-lprMdl.Curr, lprMdl.SOC, lprMdl.LPR,...
-                    interpCurr, X(2:p+1, soc_ind));
+                    interpCurr, X(2:p+1, xIND.SOC));
 %     LiPlateRate = reshape(LiPlateRate, size(curr));
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Objective Function Weights (0, 1, 5, 20 etc))
 % ---------------------------------------------------------------------
-A = 0.05; %0.85; % SOC Tracking and SOC Deviation
-A_dev = 10; % 100 * max(abs(socDev(1, :))) + 1;
+A = 5; % 0.05; %0.85; % SOC Tracking and SOC Deviation
+A_dev = 10; %100 * max(abs(socDev(1, :))) + 1;
 B = 2; % Chg Time
 C = 1; % Temp Rise rate
 D = 5; % Li Plate Rate
@@ -612,30 +634,18 @@ J = sum([...
     e.^2, ...
     ], 'all');
 
-
 end
+
 
 function [G, Gmv, Ge] = myCostJacobian(X, U, e, data, p1, p2, p3, p4)
 % Parameters (p#)
 % dt          = p1;   % Algorithm sample time
 % predMdl     = p2;   % Predictive Battery Model Structure
-cellData    = p3;   % Constant Cell Data
+% cellData    = p3;   % Constant Cell Data
 indices     = p4;   % Indices for the STATES (x)and OUTPUTS (y) presented as a struts
 
-NUMCELLS = cellData.NUMCELLS;
+% NUMCELLS = cellData.NUMCELLS;
 xIND = indices.x;
-
-% numStatesPerCell = length(fields(xIND));
-% nx = numStatesPerCell*NUMCELLS; % Number of states
-% nmv = NUMCELLS; % Number of inputs. In this case, current for each cell
-
-% Tf = battMdl.Tf;
-
-soc_ind = 1+(xIND.SOC-1)*NUMCELLS : xIND.SOC*NUMCELLS;
-% v1_ind = 1+(xIND.V1-1)*NUMCELLS : xIND.V1*NUMCELLS;
-% v2_ind = 1+(xIND.V2-1)*NUMCELLS : xIND.V2*NUMCELLS;
-% tc_ind = 1+(xIND.Tc-1)*NUMCELLS : xIND.Tc*NUMCELLS;
-% ts_ind = 1+(xIND.Ts-1)*NUMCELLS : xIND.Ts*NUMCELLS;
 
 parameters = {p1, p2, p3, p4};
 p = data.PredictionHorizon;
@@ -659,7 +669,7 @@ f0 = myCostFunction(x0, u0, e0, data, parameters{:});
 xa = abs(x0);
 xa(xa < 1) = 1;  % Prevents perturbation from approaching eps.
 for i = 1:p
-    for j = soc_ind % Only calculating wrt soc here since it is the only one used in the cost func % 1:nx
+    for j = xIND.SOC % Only calculating wrt soc here since it is the only one used in the cost func % 1:nx
         ix = i + 1; % Starts iterating from the second state
         dx = dv*xa(j);
         x0(ix,j) = x0(ix,j) + dx;
@@ -717,44 +727,43 @@ end
 
 function cineq = myIneqConFunction(X, U, e, data, p1, p2, p3, p4)
 % Parameters (p#)
-% dt = p1;            % Data sample time
-battMdl = p2;       % Battery Model Class Object
-% cap = battMdl.Cap'; % Capacity of all cells
-NUMCELLS = p3;      % Number of cells
-% MIN_CHRG_CURR = p4;  % Minimum current that prevents INF when calculating charge time
-xIND = p5;          % Indices for the STATES (x) presented as a strut
-% contMdl = p6;          % Indices for the OUTPUTS (y) presented as a strut
+% dt          = p1;   % Algorithm sample time
+% predMdl     = p2;   % Predictive Battery Model Structure
+cellData    = p3;   % Constant Cell Data
+indices     = p4;   % Indices for the STATES (x)and OUTPUTS (y) presented as a struts
 
-
-% numStatesPerCell = length(fields(xIND));
-% nx = numStatesPerCell*NUMCELLS; % Number of states
-% nmv = NUMCELLS; % Number of inputs. In this case, current for each cell
+% NUMCELLS = cellData.NUMCELLS;
+xIND = indices.x;
 
 p = data.PredictionHorizon;
 
-global MAX_CELL_VOLT
+MAX_CELL_VOLT = cellData.MAX_CELL_VOLT;
 
 % % Old method
-% Y = myOutputFcn(X(2,:)',U(2,:)',p1, p2, p3, p4)';
-% cineq = (Y(1+(yIND.volt-1)*NUMCELLS:NUMCELLS*yIND.volt) - MAX_CELL_VOLT)';
+% yIND = indices.y;
+% Y = P06_OutputFcn(X(2,:)',U(2,:)',p1, p2, p3, p4)';
+% cineq = (Y(yIND.Volt) - MAX_CELL_VOLT)';
 
 horizonInd = 1:p+1; %+1; % 2:p+1
 
 % New method - Calculating voltage directly here
-soc = X(horizonInd, 1 + (xIND.SOC-1) * NUMCELLS : xIND.SOC * NUMCELLS);
-V1 = X(horizonInd,  1 + (xIND.V1-1) * NUMCELLS : xIND.V1 * NUMCELLS);
-V2 = X(horizonInd,  1 + (xIND.V2-1) * NUMCELLS : xIND.V2 * NUMCELLS);
-Tc = X(horizonInd,  1 + (xIND.Tc-1) * NUMCELLS : xIND.Tc * NUMCELLS);
-Ts = X(horizonInd,  1 + (xIND.Ts-1) * NUMCELLS : xIND.Ts * NUMCELLS);
+soc = X(horizonInd, xIND.SOC);
+V1 = X(horizonInd,  xIND.V1);
+V2 = X(horizonInd,  xIND.V2);
+Tc = X(horizonInd,  xIND.Tc);
+Ts = X(horizonInd,  xIND.Ts);
 T_avg = (Tc + Ts)/2;
 
-% Current for the model is negative compared to current used in the MPC
-curr = -(U(horizonInd,1:NUMCELLS) + U(horizonInd, end)); % Equivalent to balCurr + PsuCurr
-    
-% OCV = updateOCV(battMdl, soc(:)); %(:));
-% OCV = reshape(OCV, size(soc));
-% rs = updateRs(battMdl, curr(:), soc(:), T_avg(:));
-% rs = reshape(rs, size(soc));
+% Compute Actual Current Through cells
+balCurr = U(2:p+1,1:NUMCELLS);
+psuCurr =  U(2:p+1, end);
+logicalInd = balCurr' >= 0;
+balActual_dchrg = predMdl.Curr.T_dchrg * (balCurr' .* (logicalInd));
+balActual_chrg = predMdl.Curr.T_chrg * (balCurr' .* (~logicalInd));
+balActual = balActual_chrg + balActual_dchrg;
+curr = psuCurr + balActual'; % Actual Current in each cell
+
+% curr = psuCurr + balCurr;
 
 Z = lookupRS_OCV(battMdl.Lookup_tbl, soc(:), T_avg(:), curr(:)); 
 OCV = reshape(Z.OCV, size(soc));
@@ -764,6 +773,275 @@ cineq = (Vt - MAX_CELL_VOLT);
 cineq = cineq(:);
 
 end
+
+
+function [A, Bmv] = myStateJacobian(x, u, p1, p2, p3, p4)
+
+% Parameters (p#)
+% dt          = p1;   % Algorithm sample time
+% predMdl     = p2;   % Predictive Battery Model Structure
+cellData    = p3;   % Constant Cell Data
+indices     = p4;   % Indices for the STATES (x) and OUTPUTS (y) presented as a struts
+
+NUMCELLS = cellData.NUMCELLS;
+
+xIND = indices.x;
+
+nx = indices.nx; % Number of states
+nmv = indices.nu; % Number of inputs. In this case, current for each cell + PSU current
+
+parameters = {p1, p2, p3, p4};
+
+x0 = x;
+u0 = u;
+
+f0 = P06_BattStateFcn(x0, u0, parameters{:});
+
+%% Get sizes
+Jx = zeros(nx, nx);
+Jmv = zeros(nx, nmv);
+% Perturb each variable by a fraction (dv) of its current absolute value.
+dv = 1e-6;
+
+%% Get Jx - How do the states change when each state is changed?
+
+xa = abs(x0);
+xa(xa < 1) = 1;  % Prevents perturbation from approaching eps.
+
+% SOC - How does changing the SOC change the states (SOC, V1, and V2. Tc or
+% Ts don't change)
+
+%{
+x0_Tavg = mean([x0(xIND.Tc), x0(xIND.Ts)], 2)';
+Jx(xIND.SOC, xIND.SOC) = eye(NUMCELLS); % Jacobian for the SOCs since they don't change when perturbed
+dx = dv*xa(xIND.SOC); % V1 and V2 changes wrt change in SOC
+x0(xIND.SOC) = x0(xIND.SOC) + dx;  % Perturb only SOC
+[v1, v2] = getRC_Volt(battMdl, dt, -abs(uc), x0(xIND.SOC)', x0_Tavg, x0(xIND.V1)', x0(xIND.V2)');
+x0(xIND.SOC) = x0(xIND.SOC) - dx; % Undo pertubation
+f = [v1(:); v2(:)];
+df = (f - f0([xIND.V1, xIND.V2]))./ [dx; dx]; % divide V1 and V2 by dx respectively
+df = reshape(df, 2, []);
+Jx(xIND.V1, xIND.SOC) = diag(df(1, :));
+Jx(xIND.V2, xIND.SOC) = diag(df(2, :));
+%}
+
+Jx(xIND.SOC, xIND.SOC) = eye(NUMCELLS); % Jacobian for the SOCs since they don't change when perturbed
+
+% dx = dv*xa(xIND.SOC);
+% x0(xIND.SOC) = x0(xIND.SOC) + dx;  % Perturb all states
+% f = P06_BattStateFcn(x0, u0, parameters{:});
+% x0(xIND.SOC) = x0(xIND.SOC) - dx;  % Undo pertubation
+% df = (f - f0)./ repmat(dx, (nx/NUMCELLS), 1);
+% Jx(xIND.SOC, xIND.SOC) = diag(df(xIND.SOC, 1));
+% Jx(xIND.V1, xIND.SOC) = diag(df(xIND.V1, 1));
+% Jx(xIND.V2, xIND.SOC) = diag(df(xIND.V2, 1));
+% Jx(xIND.Tc, xIND.SOC) = diag(df(xIND.Tc, 1));
+% Jx(xIND.Ts, xIND.SOC) = diag(df(xIND.Ts, 1));
+
+
+
+% RC Voltages - V1 and V2. 
+%   (Because V1 and V2 don't change wrt each other,
+%    their jacobians can be computed in one go.)
+
+%{
+dx = dv*xa([xIND.V1, xIND.V2]);
+x0([xIND.V1, xIND.V2]) = x0([xIND.V1, xIND.V2]) + dx; % Perturb only V1 and V2
+[v1, v2] = getRC_Volt(battMdl, dt, -abs(uc), x0(xIND.SOC)', x0_Tavg, x0(xIND.V1)', x0(xIND.V2)');
+x0([xIND.V1, xIND.V2]) = x0([xIND.V1, xIND.V2]) - dx; % Undo pertubation
+
+f = [v1(:); v2(:)];
+df = (f - f0([xIND.V1, xIND.V2]))./dx;
+Jx = replaceDiag(Jx, df, [xIND.V1, xIND.V2], 0);
+%}
+
+% V1
+dx = dv*xa(xIND.V1);
+x0(xIND.V1) = x0(xIND.V1) + dx;  % Perturb all states
+f = P06_BattStateFcn(x0, u0, parameters{:});
+x0(xIND.V1) = x0(xIND.V1) - dx;  % Undo pertubation
+df = (f - f0)./ repmat(dx, (nx/NUMCELLS), 1);
+Jx(xIND.SOC, xIND.V1) = diag(df(xIND.SOC, 1));
+Jx(xIND.V1, xIND.V1) = diag(df(xIND.V1, 1));
+Jx(xIND.V2, xIND.V1) = diag(df(xIND.V2, 1));
+Jx(xIND.Tc, xIND.V1) = diag(df(xIND.Tc, 1));
+Jx(xIND.Ts, xIND.V1) = diag(df(xIND.Ts, 1));
+
+% V2
+dx = dv*xa(xIND.V2);
+x0(xIND.V2) = x0(xIND.V2) + dx;  % Perturb all states
+f = P06_BattStateFcn(x0, u0, parameters{:});
+x0(xIND.V2) = x0(xIND.V2) - dx;  % Undo pertubation
+df = (f - f0)./ repmat(dx, (nx/NUMCELLS), 1);
+Jx(xIND.SOC, xIND.V2) = diag(df(xIND.SOC, 1));
+Jx(xIND.V1, xIND.V2) = diag(df(xIND.V1, 1));
+Jx(xIND.V2, xIND.V2) = diag(df(xIND.V2, 1));
+Jx(xIND.Tc, xIND.V2) = diag(df(xIND.Tc, 1));
+Jx(xIND.Ts, xIND.V2) = diag(df(xIND.Ts, 1));
+
+
+% Tc and Ts Temperatures.
+% How does V1, V2, Tc and Ts change wrt Tc and Ts respectively? soc does
+% not change wrt Tc or Ts (at least not in this algorithm)
+
+%{
+dx_tc = dv*xa(xIND.Tc);
+x0(xIND.Tc) = x0(xIND.Tc) + dx_tc; % Perturb only V1 and V2
+f_tc = calcTemp (uc, [x0(xIND.Tc)'; x0(xIND.Ts)'], dt, Tf);
+x0_Tavg = mean([x0(xIND.Tc), x0(xIND.Ts)], 2)';
+[v1, v2] = getRC_Volt(battMdl, dt, -abs(uc), x0(xIND.SOC)', x0_Tavg, x0(xIND.V1)', x0(xIND.V2)');
+f_tc = [v1(:); v2(:); f_tc(1, :)'; f_tc(2, :)'];
+x0(xIND.Tc) = x0(xIND.Tc) - dx_tc; % Undo pertubation
+
+dx_ts = dv*xa(xIND.Ts);
+x0(xIND.Ts) = x0(xIND.Ts) + dx_ts; % Perturb only V1 and V2
+f_ts = calcTemp (uc, [x0(xIND.Tc)'; x0(xIND.Ts)'], dt, Tf);
+x0_Tavg = mean([x0(xIND.Tc), x0(xIND.Ts)], 2)';
+[v1, v2] = getRC_Volt(battMdl, dt, -abs(uc), x0(xIND.SOC)', x0_Tavg, x0(xIND.V1)', x0(xIND.V2)');
+f_ts = [v1(:); v2(:); f_ts(1, :)'; f_ts(2, :)'];
+x0(xIND.Ts) = x0(xIND.Ts) - dx_ts; % Undo pertubation
+
+ix = [xIND.V1, xIND.V2, xIND.Tc, xIND.Ts];
+
+df_tc = (f_tc - f0(ix)) ./ repmat(dx_tc(:), (nx/NUMCELLS)-1, 1); % (f-f0)./dx
+df_ts = (f_ts - f0(ix)) ./ repmat(dx_ts(:), (nx/NUMCELLS)-1, 1); % (f-f0)./dx
+
+soc_change = zeros(size(xIND.SOC'));
+df_tc = [soc_change; df_tc];
+df_ts = [soc_change; df_ts];
+
+df_tc = [diag(df_tc(xIND.SOC)); diag(df_tc(xIND.V1)); diag(df_tc(xIND.V2));...
+            diag(df_tc(xIND.Tc)); diag(df_tc(xIND.Ts))];
+df_ts = [diag(df_ts(xIND.SOC)); diag(df_ts(xIND.V1)); diag(df_ts(xIND.V2));...
+            diag(df_ts(xIND.Tc)); diag(df_ts(xIND.Ts))];
+
+Jx(: , xIND.Tc) = df_tc;
+Jx(: , xIND.Ts) = df_ts;
+%}
+% % TC
+% dx = dv*xa(xIND.Tc);
+% x0(xIND.Tc) = x0(xIND.Tc) + dx;  % Perturb all states
+% f = P06_BattStateFcn(x0, u0, parameters{:});
+% x0(xIND.Tc) = x0(xIND.Tc) - dx;  % Undo pertubation
+% df = (f - f0)./ repmat(dx, (nx/NUMCELLS), 1);
+% Jx(xIND.SOC, xIND.Tc) = diag(df(xIND.SOC, 1));
+% Jx(xIND.V1, xIND.Tc) = diag(df(xIND.V1, 1));
+% Jx(xIND.V2, xIND.Tc) = diag(df(xIND.V2, 1));
+% Jx(xIND.Tc, xIND.Tc) = diag(df(xIND.Tc, 1));
+% Jx(xIND.Ts, xIND.Tc) = diag(df(xIND.Ts, 1));
+
+Jx(xIND.Tc, xIND.Tc) = 0.973900266935093 * eye(NUMCELLS);
+Jx(xIND.Ts, xIND.Tc) = 0.352264366085013 * eye(NUMCELLS);
+
+% % TS
+% dx = dv*xa(xIND.Ts);
+% x0(xIND.Ts) = x0(xIND.Ts) + dx;  % Perturb all states
+% f = P06_BattStateFcn(x0, u0, parameters{:});
+% x0(xIND.Ts) = x0(xIND.Ts) - dx;  % Undo pertubation
+% df = (f - f0)./ repmat(dx, (nx/NUMCELLS), 1);
+% Jx(xIND.SOC, xIND.Ts) = diag(df(xIND.SOC, 1));
+% Jx(xIND.V1, xIND.Ts) = diag(df(xIND.V1, 1));
+% Jx(xIND.V2, xIND.Ts) = diag(df(xIND.V2, 1));
+% Jx(xIND.Tc, xIND.Ts) = diag(df(xIND.Tc, 1));
+% Jx(xIND.Ts, xIND.Ts) = diag(df(xIND.Ts, 1));
+
+Jx(xIND.Ts, xIND.Tc) = 0.025282131510418 * eye(NUMCELLS);
+Jx(xIND.Ts, xIND.Ts) = 0.601358507776876 * eye(NUMCELLS);
+
+
+%% Get Jmv - How do the states change when each manipulated variable is changed?
+%{
+ua = abs(u0); % (1:NUMCELLS)
+ua(ua < 1) = 1;
+du = dv*ua(1:NUMCELLS);
+u0(1:NUMCELLS) = u0(1:NUMCELLS) + du;
+f = P06_BattStateFcn(x0, u0, parameters{:});
+u0(1:NUMCELLS) = u0(1:NUMCELLS) - du;
+df = (f - f0) ./ repmat(du, (nx/NUMCELLS), 1);
+
+du = dv*ua(end);
+u0(end) = u0(end) + du;
+f = P06_BattStateFcn(x0, u0, parameters{:});
+u0(end) = u0(end) - du;
+df2 = (f - f0) ./ du;
+
+
+Jmv(xIND.SOC, 1:NUMCELLS) = diag(df(xIND.SOC));
+Jmv(xIND.V1, 1:NUMCELLS) = diag(df(xIND.V1));
+Jmv(xIND.V2, 1:NUMCELLS) = diag(df(xIND.V2));
+Jmv(xIND.Tc, 1:NUMCELLS) = diag(df(xIND.Tc));
+Jmv(xIND.Ts, 1:NUMCELLS) = diag(df(xIND.Ts));
+
+Jmv = [Jmv, df2];
+%}
+
+ua = abs(u0);
+ua(ua < 1) = 1;
+for j = 1:nmv
+    k = j; % imv(j);
+    du = dv*ua(k);
+    u0(k) = u0(k) + du;
+    f = P06_BattStateFcn(x0, u0, parameters{:});
+    u0(k) = u0(k) - du;
+    df = (f - f0)/du;
+    Jmv(:,j) = df;
+end
+
+A = Jx;
+Bmv = Jmv;
+
+end
+
+
+function C = myOutputJacobian(x, u, p1, p2, p3, p4)
+% Parameters (p#)
+% dt          = p1;   % Algorithm sample time
+% predMdl     = p2;   % Predictive Battery Model Structure
+cellData    = p3;   % Constant Cell Data
+indices     = p4;   % Indices for the STATES (x) and OUTPUTS (y) presented as a struts
+
+NUMCELLS = cellData.NUMCELLS;
+
+xIND = indices.x;
+yIND = indices.y;
+
+nx = indices.nx; % Number of states
+ny = indices.ny; % Number of states
+C = zeros(ny, nx);
+
+C(yIND.SOC, xIND.SOC) = eye(NUMCELLS);
+C(yIND.Volt, xIND.V1) = -1* eye(NUMCELLS);
+C(yIND.Volt, xIND.V2) = -1* eye(NUMCELLS);
+C(yIND.Ts, xIND.Ts) = eye(NUMCELLS);
+
+
+
+%{
+parameters = {p1, p2, p3, p4};
+
+x0 = x;
+u0 = u;
+
+f0 = P06_OutputFcn(x0, u0, parameters{:});
+
+% Perturb each variable by a fraction (dv) of its current absolute value.
+dv = 1e-6;
+%% Get Jx
+xa = abs(x0);
+xa(xa < 1) = 1;  % Prevents perturbation from approaching eps.
+for j = 1:nx
+    dx = dv*xa(j);
+    x0(j) = x0(j) + dx;
+    f = P06_OutputFcn(x0,u0,parameters{:});
+    x0(j) = x0(j) - dx;
+    C(:,j) = (f - f0)/dx;
+end
+%}
+
+
+end
+
+
 
 
 function newDiagMat = replaceDiag(oldDiagMat, vector, indRangeV, offset)
