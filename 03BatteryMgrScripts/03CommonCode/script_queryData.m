@@ -126,7 +126,7 @@ if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDe
     
     adcAvgCounter = 0; currPos = 0; currNeg = 0; % ain1 = 0;
     
-    packCurr = (cSigP_N1 - 2.4902)/0.1;
+    packCurr = -(cSigP_N1 - 2.4902)/0.1; % Negative for Charging, Pos for discharging
     
     if strcmpi(battState, "idle")
         packCurr = 0.0;
@@ -142,9 +142,9 @@ if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDe
 elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "powerDev") 
     % Use Current Data from either PSU or ELOAD for Battery current
     if strcmpi(battState, "discharging")
-        packCurr = -eload.MeasureCurr();
+        packCurr = eload.MeasureCurr();
     elseif strcmpi(battState, "charging")
-        packCurr = psu.measureCurr();
+        packCurr = -psu.measureCurr();
     elseif strcmpi(battState, "idle")
         packCurr = 0.0;
     end
@@ -156,17 +156,25 @@ elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMe
         cells.curr(cellIDs) = packCurr; % Assign stack current to individual current
     end
 elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "balancer")
-    % Use Current Data from either PSU or ELOAD for Battery current
+    % Use Current Data from either PSU or ELOAD for Pack current
     if strcmpi(battState, "discharging")
-        packCurr = -eload.MeasureCurr();
+        packCurr = eload.MeasureCurr(); % Dischare is positive
     elseif strcmpi(battState, "charging")
-        packCurr = psu.measureCurr();
+        packCurr = -psu.measureCurr(); % Charging is negative
     elseif strcmpi(battState, "idle")
         packCurr = 0.0;
     end
     
-    balEff = 0.90;
-    cells.curr(cellIDs) = balEff * bal.Currents(1, logical(bal.cellPresent(1, :)) + packCurr);
+    balCurr = bal.Currents(1, logical(bal.cellPresent(1, :)));
+    
+    % % Compute Actual Current Through cells
+    logicalInd = balCurr(:) >= 0;
+    balActual_dchrg = T_dchrg * (balCurr(:) .* (logicalInd));
+    balActual_chrg = T_chrg * (balCurr(:) .* (~logicalInd));
+    balActual = balActual_chrg + balActual_dchrg;
+    cells.curr(cellIDs) = packCurr + balActual(:); % Actual Current in each cell
+
+%     cells.curr(cellIDs) = balEff * bal.Currents(1, logical(bal.cellPresent(1, :)) + packCurr);
 end
 
 
@@ -184,20 +192,22 @@ if ismember("SOC", testSettings.data2Record)
     
     if strcmpi(cellConfig, "series")
         % Get Change in SOCs
-        dSoc_bal = estimateDeltaSOC(cells.curr(cellIDs),...
-            deltaT, cells.coulomb(cellIDs), cellConfig); % Leave right after cell curr update since it is used in SOC estimation
-        dSoc_stack = estimateDeltaSOC(packCurr,...
-            deltaT, coulombs, cellConfig); % Leave right after packCurr update since it is used in SOC estimation
-        
-        % Update cell SOCs
-        cells.SOC(cellIDs) = cells.prevSOC(cellIDs) + (dSoc_bal + dSoc_stack);
-        
+%         dSoc_bal = estimateDeltaSOC(cells.curr(cellIDs),...
+%             deltaT, cells.coulomb(cellIDs), cellConfig); % Leave right after cell curr update since it is used in SOC estimation
+%         dSoc_stack = estimateDeltaSOC(packCurr,...
+%             deltaT, coulombs, cellConfig); % Leave right after packCurr update since it is used in SOC estimation
+%         
+%         % Update cell SOCs
+%         cells.SOC(cellIDs) = cells.prevSOC(cellIDs) + (dSoc_bal + dSoc_stack);
+%         
+        cells.SOC(cellIDs) = estimateSOC(cells.curr(cellIDs),...
+            deltaT, cells.prevSOC(cellIDs), cells.coulomb(cellIDs)); 
         packSOC = mean(cells.SOC(cellIDs));
        
     else
         cells.SOC(cellIDs) = estimateSOC(cells.curr(cellIDs),...
-            deltaT, cells.prevSOC(cellIDs), coulombs); % Leave right after packCurr update since it is used in SOC estimation
-        packSOC = estimateSOC(packCurr, deltaT, prevSOC, coulombs); % Leave right after packCurr update since it is used in SOC estimation
+            deltaT, cells.prevSOC(cellIDs), coulombs);
+        packSOC = estimateSOC(packCurr, deltaT, prevSOC, coulombs);
         
     end
     

@@ -11,5 +11,5 @@ function soc = estimateSOC(curr, delta_t, prevsoc, Q)
     t1 = tic;
 
     delta_t = delta_t + toc(t1); % Here to make sure the timer is as correct as possible
-    soc = prevsoc + (curr*delta_t)./Q;
+    soc = prevsoc + (curr*delta_t)./-Q; % negative here is to allow increase SOC when current is negative (charging)
 end
