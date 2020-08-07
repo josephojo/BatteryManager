@@ -158,6 +158,7 @@ else
             testSettings.voltMeasDev = "mcu";
         elseif strcmpi(cellConfig, "series")
             testSettings.voltMeasDev = "balancer";
+            testSettings.currMeasDev = "balancer";
         end
     end
     
@@ -337,7 +338,9 @@ battSurfTempLimit = mean(battProp.maxSurfTemp(cellIDs)); % Maximum Surface limit
 battCoreTempLimit = mean(battProp.maxCoreTemp(cellIDs)); % Maximum Core limit of the battery
 errorCode = 0;
 
-eventLog = [];
+if ~exist('eventLog', 'var') || isempty(eventLog) || ~isvalid(eventLog)
+    eventLog = [];
+end
 
 % Opens the Event Logger
 if strcmpi(caller, "gui")

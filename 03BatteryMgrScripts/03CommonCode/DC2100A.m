@@ -1437,7 +1437,7 @@ classdef DC2100A < handle
                                 if obj.voltage_timestamp(board_num +1).time_difference > 4
                                     obj.num_times_over_4sec ...
                                         = obj.num_times_over_4sec + 1;
-                                    obj.eventLog.Add(ErrorCode.USB_Delayed,...
+                                    obj.eventLog.Add(ErrorCode.USB_DELAYED,...
                                         num2str(obj.voltage_timestamp(board_num +1)...
                                         .time_difference) + ":" + num2str(obj.num_times_over_4sec)); % #debugString=buffer
                                 end
@@ -1549,7 +1549,7 @@ classdef DC2100A < handle
                                 if obj.temperature_timestamp(board_num +1).time_difference > 4
                                     obj.num_times_over_4sec ...
                                         = obj.num_times_over_4sec + 1;
-                                    obj.eventLog.Add(ErrorCode.USB_Delayed,...
+                                    obj.eventLog.Add(ErrorCode.USB_DELAYED,...
                                         num2str(obj.temperature_timestamp(board_num +1)...
                                         .time_difference) + ":" + num2str(obj.num_times_over_4sec)); % #debugString=buffer
                                 end
@@ -2187,50 +2187,7 @@ classdef DC2100A < handle
             end
             
         end
-        
-        
-        function Handle_Exception(obj, MEX, varargin)
-            %Handle_Exception Used to catch and display exceptions on the
-            %Error Log app
-            %   Inputs:
-            %       obj         : DC2100A object. Can otherwise add it behind
-            %                       function i.e. obj.Handle_Exception(MEX, varargin)
-            %       MEX         : If the function is being called anywhere 
-            %                       in the program, this input will be a
-            %                       Matlab EXception. Otherwise, if it is
-            %                       being called by the USBTimer object,
-            %                       then it is the Timer object.
-            %       varargin    : If the USBTimer object is calling this
-            %                       function, a struct of exceptions will
-            %                       be recieved through varargin{1}.
-            %
-            
-            if nargin <= 2
-                stk = MEX.stack;
-                mexStr = newline + string(char(9)) + string(MEX.message) + newline;
-                for i=1:length(stk)
-                    mexStr = mexStr + char(9) ...
-                        + sprintf("Error in %s (line %d)",...
-                        strrep(stk(i).name,'.','/'), stk(i).line);
-                    %                 if i ~= length(stk)
-                    mexStr = mexStr + newline + char(9); % char(9) = \tab
-                    %                 end
-                end
-                
-            else
-                timerObj = MEX; % Receive the USBTimer object since it is not a MEX
-                MEXstruct = varargin{1};
-                MEX = MEXstruct.Data; % Receive the actaul MEX data from varargin
-                
-                mexStr = newline + string(char(9)) + string(MEX.message) + newline;
-                mexStr = mexStr + char(9) ...
-                    + sprintf("Error while evaluating %s for timer '%s'", MEXstruct.Type, timerObj.Name);
-                mexStr = mexStr + newline + char(9); % char(9) = \tab
-            end
-            
-            obj.eventLog.Add(ErrorCode.EXCEPTION, mexStr); % Show the exception on the Error Logger app
-        end
-        
+      
         
 %         function testErr(obj, varargin)
 %             varargin{:} % Test print any inputs you get
@@ -2918,7 +2875,7 @@ classdef DC2100A < handle
                 
             elseif num_currents == obj.numCells(board_num +1)
                 curr2Send = zeros(DC2100A.MAX_CELLS, 1);
-                curr2Send(obj.cellPresent(board_num +1, :)) = current;
+                curr2Send(logical(obj.cellPresent(board_num +1, :)), 1) = current;
                 
             elseif num_currents < DC2100A.MIN_CELLS || num_currents > DC2100A.MAX_CELLS
                 obj.eventLog.Add(ErrorCode.OUT_OF_BOUNDS,...
@@ -2965,7 +2922,8 @@ classdef DC2100A < handle
                 
             elseif num_charges == obj.numCells(board_num +1)
                 charges2Send = zeros(DC2100A.MAX_CELLS, 1);
-                charges2Send(obj.cellPresent(board_num +1, :)) = charges;
+                charges2Send(logical(obj.cellPresent(board_num +1, :)), 1)...
+                    = charges;
                 
             elseif num_charges < DC2100A.MIN_CELLS || num_charges > DC2100A.MAX_CELLS
                 obj.eventLog.Add(ErrorCode.OUT_OF_BOUNDS,...
@@ -2984,17 +2942,18 @@ classdef DC2100A < handle
             % values. These Balance Actions do not need to converted to
             % balance commands since they are not being sent directly to
             % the LTC3300s but instead, to a low level controller.
+            % Bal Action of 1 here means to discharge, 0 means charge
             
             actions = zeros(1, DC2100A.MAX_CELLS);
-            dchrg_ind = charges2Send > 0; % Negative values are charging currents, positive values discharging
+            dchrg_ind = charges2Send > 0; % Positive values discharging, Negative values are charging currents
             actions(dchrg_ind) = 1; % Discharge Action 
             
             actions2Send = bin2dec(num2str(flip(actions))); % flip cuz bin2dec takes the array from the right to left instead of left to right
             
-            curr2Send2 = abs(charges2Send) * DC2100A.MA_PER_A * obj.sTime_MPC; % Send in terms of capacity (mAs) in 2 bytes per cell current
+            charges2Send2 = round(abs(charges2Send) * DC2100A.MA_PER_A); % * obj.sTime_MPC; % Send in terms of capacity (mAs) in 2 bytes per cell current
             
             dataString = dataString + string(dec2hex(actions2Send, 4));
-            dataString = dataString + strjoin(string(dec2hex(curr2Send2, 4)), "");
+            dataString = dataString + strjoin(string(dec2hex(charges2Send2, 4)), "");
             
             obj.buf_out.add(dataString);
             
@@ -3043,12 +3002,56 @@ classdef DC2100A < handle
                     disp("Serial Buffer Cleared.");
                 end
                 flush(obj.serial, 'input');
+                obj.serial = [];
                 disp("DC2100A Board disconnected")
             end
             
             evalin('caller', [['clear '], s ,';']);
 %             profile viewer
 %             profile off;
+        end
+        
+        
+        function Handle_Exception(obj, MEX, varargin)
+            %Handle_Exception Used to catch and display exceptions on the
+            %Error Log app
+            %   Inputs:
+            %       obj         : DC2100A object. Can otherwise add it behind
+            %                       function i.e. obj.Handle_Exception(MEX, varargin)
+            %       MEX         : If the function is being called anywhere
+            %                       in the program, this input will be a
+            %                       Matlab EXception. Otherwise, if it is
+            %                       being called by the USBTimer object,
+            %                       then it is the Timer object.
+            %       varargin    : If the USBTimer object is calling this
+            %                       function, a struct of exceptions will
+            %                       be recieved through varargin{1}.
+            %
+            
+            if nargin <= 2
+                stk = MEX.stack;
+                mexStr = newline + string(char(9)) + string(MEX.message) + newline;
+                for i=1:length(stk)
+                    mexStr = mexStr + char(9) ...
+                        + sprintf("Error in %s (line %d)",...
+                        strrep(stk(i).name,'.','/'), stk(i).line);
+                    %                 if i ~= length(stk)
+                    mexStr = mexStr + newline + char(9); % char(9) = \tab
+                    %                 end
+                end
+                
+            else
+                timerObj = MEX; % Receive the USBTimer object since it is not a MEX
+                MEXstruct = varargin{1};
+                MEX = MEXstruct.Data; % Receive the actaul MEX data from varargin
+                
+                mexStr = newline + string(char(9)) + string(MEX.message) + newline;
+                mexStr = mexStr + char(9) ...
+                    + sprintf("Error while evaluating %s for timer '%s'", MEXstruct.Type, timerObj.Name);
+                mexStr = mexStr + newline + char(9); % char(9) = \tab
+            end
+            
+            obj.eventLog.Add(ErrorCode.EXCEPTION, mexStr); % Show the exception on the Error Logger app
         end
         
     end

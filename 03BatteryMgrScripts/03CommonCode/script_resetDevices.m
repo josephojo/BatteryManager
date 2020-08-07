@@ -106,7 +106,7 @@ end
 
 if exist('bal','var')
     if isvalid(bal) && strcmpi(bal.serialStatus, 'Connected')
-        bal.disconnect();
+        bal.disconnectSerial();
     end
 end
 

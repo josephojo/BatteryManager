@@ -45,6 +45,7 @@ try
         testSettings.saveDir = str + "\01CommonDataForBattery";
         
         testSettings.cellConfig = "series";
+        testSettings.currMeasDev = "balancer";
         
         testSettings.saveName   = "00SP_HCFC_" + cellIDs;
         testSettings.purpose    = "To use in identifying the RC parameters for an ECM model";
@@ -56,9 +57,13 @@ try
     end
     
     script_initializeVariables; % Run Script to initialize common variables
+
+    if ~exist('eventLog', 'var') || isempty(eventLog) || ~isvalid(eventLog)
+        eventLog = EventLogger();
+    end
+    
     script_initializeDevices; % Run Script to initialize control devices
     verbosity = 2; % Data measurements are not displayed since the results from the MPC will be.
-    script_queryData; % Get initial states from measurements.
  catch ME
     script_handleException;
 end   
@@ -78,8 +83,10 @@ MAX_BAL_CURR = 5.3;
 MIN_BAL_CURR = -1.5;
 
 MAX_CELL_CURR = batteryParam.maxCurr(cellIDs);
-MAX_CELL_VOLT = batteryParam.chargedVolt(cellIDs);
-MIN_CELL_VOLT = batteryParam.dischargedVolt(cellIDs);
+MAX_CHRG_VOLT = batteryParam.chargedVolt(cellIDs);
+MIN_DCHRG_VOLT = batteryParam.dischargedVolt(cellIDs);
+MAX_CELL_VOLT = batteryParam.maxVolt(cellIDs);
+MIN_CELL_VOLT = batteryParam.minVolt(cellIDs);
 CAP = batteryParam.capacity(cellIDs);  % battery capacity
 
 
@@ -87,8 +94,8 @@ cellData.NUMCELLS = NUMCELLS;
 cellData.MAX_BAL_CURR = MAX_BAL_CURR;
 cellData.MIN_BAL_CURR = MIN_BAL_CURR;
 cellData.MAX_CELL_CURR = MAX_CELL_CURR;
-cellData.MAX_CELL_VOLT = MAX_CELL_VOLT;
-cellData.MIN_CELL_VOLT = MIN_CELL_VOLT;
+cellData.MAX_CHRG_VOLT = MAX_CHRG_VOLT;
+cellData.MIN_DCHRG_VOLT = MIN_DCHRG_VOLT;
 cellData.CAP = CAP;
 
 
@@ -120,8 +127,8 @@ TARGET_SOC = 0.98;
 LPR_Target = 50;
 
 % Balance Efficiencies
-chrgEff = 0.774;
-dischrgEff = 0.651;
+chrgEff = 0.774; 
+dischrgEff = 0.651; 
 
 Tf = thermoData(1); % Ambient Temp
 
@@ -143,49 +150,22 @@ prevTime = 0; prevElapsed = 0;
 
 balBoard_num = 0; % ID for the main balancer board
 
-%% Initialize Plant variables and States 
-% #############  Initial States  ##############
-battData = struct;
-battData.time           = 0;
-battData.Ts             = thermoData(2:end);    % Surface Temp
-battData.Tc             = thermoData(2:end);    % Initialize core temperature to surf Temp
-battData.Tf             = Tf;                   % Ambient Temp
-battData.volt           = cells.volt(cellIDs);
-battData.curr           = cells.curr(cellIDs); % zeros(1, NUMCELLS);
-battData.LiPlateRate    = zeros(1, NUMCELLS);
-
-initialSOCs = cells.SOC(cellIDs);
-
-battData.SOC            = initialSOCs(1:NUMCELLS);
-battData.Cap            = CAP;
-
-battData.Cost = 0;
-battData.timeLeft = zeros(1, NUMCELLS);
-battData.ExitFlag = 0;
-battData.Iters = 0;
-battData.balCurr = zeros(1, NUMCELLS);
-battData.optCurr = zeros(1, NUMCELLS);
-battData.optPSUCurr = zeros(1, 1);
-
-
-ind = 1;
-xk = zeros(nx, 1);
-
-xk(ind:ind+NUMCELLS-1, :)   =  battData.SOC'         ; ind = ind + NUMCELLS;
-xk(ind:ind+NUMCELLS-1, :)   =  zeros(1, NUMCELLS)'   ; ind = ind + NUMCELLS; % V1 - Voltage accross RC1
-xk(ind:ind+NUMCELLS-1, :)   =  zeros(1, NUMCELLS)'   ; ind = ind + NUMCELLS; % V2 - Voltage accross RC2
-xk(ind:ind+NUMCELLS-1, :)   =  battData.Tc'          ; ind = ind + NUMCELLS;
-xk(ind:ind+NUMCELLS-1, :)   =  battData.Ts'          ; ind = ind + NUMCELLS;
-
 %% Predictive Model
 try
     % Voltage Model
     load(dataLocation + '008OCV_AB1_Rev2.mat', 'OCV', 'SOC'); % Lithium plating rate
-    R1 = 0.0145 * ones(1, NUMCELLS);
-    R2 = -0.0037 * ones(1, NUMCELLS);
-    C1 = 1.1506e3 * ones(1, NUMCELLS);
-    C2 = 1.1398e5 * ones(1, NUMCELLS);
-    Rs = 0.0103 * ones(1, NUMCELLS);
+    
+    C1 = 1187;
+    C2 = 151660;
+    R1 = 0.034249;
+    R2 = 0.1328;
+    Rs = 0.096887;
+    
+    C1 = C1 * ones(1, NUMCELLS);
+    C2 = C2 * ones(1, NUMCELLS);
+    R1 = R1 * ones(1, NUMCELLS);
+    R2 = R2 * ones(1, NUMCELLS);
+    Rs = Rs * ones(1, NUMCELLS);
     
     A11 = -1./(R1 .* C1);
     A12 = zeros(1, length(A11));
@@ -210,7 +190,7 @@ try
     voltMdl.R2 = R2;
     voltMdl.C1 = C1;
     voltMdl.C2 = C2;
-    voltMdl.Rs = Rs;
+    voltMdl.Rs = Rs(:);
     voltMdl.OCV = OCV;
     voltMdl.SOC = SOC;
     
@@ -234,7 +214,7 @@ try
     
     A_Dis = expm(tempMdl.A_cont * sampleTime);
     tempMdl.A = A_Dis;
-    tempMdl.B = tempMdl.A\(A_Dis - eye(size(A_Dis,1))) * tempMdl.B_cont;
+    tempMdl.B = tempMdl.A_cont\(A_Dis - eye(size(A_Dis,1))) * tempMdl.B_cont;
     tempMdl.Tf = Tf; % Ambient Temp
     
     % SOC Deviation Matrix
@@ -282,6 +262,46 @@ catch ME
     script_handleException;
 end
 
+%% Initialize Plant variables and States 
+% #############  Initial States  ##############
+try
+    script_queryData; % Get initial states from device measurements.
+catch ME
+    script_handleException;
+end
+
+battData = struct;
+battData.time           = 0;
+battData.Ts             = thermoData(2:end);    % Surface Temp
+battData.Tc             = thermoData(2:end);    % Initialize core temperature to surf Temp
+battData.Tf             = Tf;                   % Ambient Temp
+battData.volt           = cells.volt(cellIDs)';
+battData.curr           = cells.curr(cellIDs)'; % zeros(1, NUMCELLS);
+battData.LiPlateRate    = zeros(1, NUMCELLS);
+
+initialSOCs = cells.SOC(cellIDs); % [0.699, 0.5, 0.55, 0.55]
+
+battData.SOC            = initialSOCs(1:NUMCELLS, 1)';
+battData.Cap            = CAP;
+
+battData.Cost = 0;
+battData.timeLeft = zeros(1, NUMCELLS);
+battData.ExitFlag = 0;
+battData.Iters = 0;
+battData.balCurr = zeros(1, NUMCELLS);
+battData.optCurr = zeros(1, NUMCELLS);
+battData.optPSUCurr = zeros(1, 1);
+
+
+ind = 1;
+xk = zeros(nx, 1);
+
+xk(ind:ind+NUMCELLS-1, :)   =  battData.SOC'         ; ind = ind + NUMCELLS;
+xk(ind:ind+NUMCELLS-1, :)   =  zeros(1, NUMCELLS)'   ; ind = ind + NUMCELLS; % V1 - Voltage accross RC1
+xk(ind:ind+NUMCELLS-1, :)   =  zeros(1, NUMCELLS)'   ; ind = ind + NUMCELLS; % V2 - Voltage accross RC2
+xk(ind:ind+NUMCELLS-1, :)   =  battData.Tc'          ; ind = ind + NUMCELLS;
+xk(ind:ind+NUMCELLS-1, :)   =  battData.Ts'          ; ind = ind + NUMCELLS;
+
 %% MPC - Configure Parameters
 try
     mpcObj = nlmpc(nx,ny,nu);
@@ -304,31 +324,32 @@ try
     % Small Rates affect speed a lot
     for i = 1:NUMCELLS
         mpcObj.MV(i).Max =  MAX_BAL_CURR;      mpcObj.MV(i).RateMax =  1.0; % MAX_CELL_CURR;
-        mpcObj.MV(i).Min =  -MAX_BAL_CURR;     mpcObj.MV(i).RateMin = -1.0; % -2; % -6
+        mpcObj.MV(i).Min =  MIN_BAL_CURR;     mpcObj.MV(i).RateMin = -1.0; % -2; % -6
     end
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;
-    mpcObj.MV(NUMCELLS + 1).Min =  -(MAX_CELL_CURR - MAX_BAL_CURR);
+    mpcObj.MV(NUMCELLS + 1).Min =  -4; % (MAX_CELL_CURR - MAX_BAL_CURR);
     mpcObj.MV(NUMCELLS + 1).RateMax =  2; % MAX_CELL_CURR;
     mpcObj.MV(NUMCELLS + 1).RateMin = -2; % -6
     
     % Equality Limits for state/output vars for each cell
     for i=1:NUMCELLS
         % SOC
-        mpcObj.States(i + (xIND.SOC-1) * NUMCELLS).Max =  0.99;
-        mpcObj.States(i + (xIND.SOC-1) * NUMCELLS).Min =  0;
+        mpcObj.States(i + (xSOC-1) * NUMCELLS).Max =  0.99;
+        mpcObj.States(i + (xSOC-1) * NUMCELLS).Min =  0;
         
         % Ts
-        mpcObj.States(i + (xIND.Ts-1) * NUMCELLS).Max =  44;
-        mpcObj.States(i + (xIND.Ts-1) * NUMCELLS).Min =  0;
-        mpcObj.States(i + (xIND.Ts-1) * NUMCELLS).ScaleFactor =  44;
+        mpcObj.States(i + (xTs-1) * NUMCELLS).Max =  44;
+        mpcObj.States(i + (xTs-1) * NUMCELLS).Min =  0;
+        mpcObj.States(i + (xTs-1) * NUMCELLS).ScaleFactor =  44;
         
         % Volt
-        mpcObj.OV(i + (yIND.Volt-1) * NUMCELLS).Max =  MAX_CELL_VOLT - 0.01;
-        mpcObj.OV(i + (yIND.Volt-1) * NUMCELLS).Min =  MIN_CELL_VOLT;
-        mpcObj.OV(i + (yIND.Volt-1) * NUMCELLS).ScaleFactor =  MAX_CELL_VOLT;
+        mpcObj.OV(i + (yVolt-1) * NUMCELLS).Max =  MAX_CHRG_VOLT(i) - 0.01;
+        mpcObj.OV(i + (yVolt-1) * NUMCELLS).Min =  MIN_DCHRG_VOLT(i);
+        mpcObj.OV(i + (yVolt-1) * NUMCELLS).ScaleFactor =  MAX_CHRG_VOLT(i);
     end
-    
+    bal.Set_OVUV_Threshold(MAX_CELL_VOLT(1, 1), MIN_CELL_VOLT(1, 1));
+
     
     % Add dynamic model for nonlinear MPC
     mpcObj.Model.StateFcn = @(x, u, p1, p2, p3, p4)...
@@ -381,40 +402,43 @@ ekf.ProcessNoise = 0.05;
 
 %% MPC Simulation Loop
 
-timer = tic;
+mpcTimer = tic;
 
 r = rateControl(1/sampleTime);
 u = zeros(NUMCELLS + 1,1);
 options = nlmpcmoveopt;
 options.Parameters = {p1, p2, p3, p4};
 try
-    dataQueryTimer = timer;
-    
-    % Start Measurement Timer
-    dataQueryTimer.ExecutionMode = 'fixedSpacing';
-    dataQueryTimer.Period = readPeriod;
-    dataQueryTimer.StopFcn = @dataQueryTimerStopped;
-    dataQueryTimer.TimerFcn = @dataQueryTimerFcn;
-    dataQueryTimer.ErrorFcn = {@bal.Handle_Exception, []};
-    % Start COMM out timer
-    start(dataQueryTimer);
-    
-    
+%     dataQueryTimer = timer;
+%     
+%     % Start Measurement Timer
+%     dataQueryTimer.ExecutionMode = 'fixedSpacing';
+%     dataQueryTimer.Period = readPeriod;
+%     dataQueryTimer.StopFcn = @dataQueryTimerStopped;
+%     dataQueryTimer.TimerFcn = @dataQueryTimerFcn;
+%     dataQueryTimer.ErrorFcn = {@bal.Handle_Exception, []};
+%     % Start COMM out timer
+%     start(dataQueryTimer);
+        
     sTime = [];
     reset(r); 
     while max(xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) <= TARGET_SOC)
         % Get Elapsed Time
-        tElapsed_MPC = toc(timer);
+        tElapsed_MPC = toc(mpcTimer);
         
         idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MAX_CELL_CURR));
         SOC_Target = xk(xIND.SOC) + (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC - xk(xIND.SOC, 1));
         references = [SOC_Target(:)', repmat(LPR_Target, 1, NUMCELLS),...
              repmat(3, 1, NUMCELLS)];
 
-        
+%         tt = tic;
         % Run the MPC controller
         [u,~,mpcinfo] = nlmpcmove(mpcObj, xk, u,...
             references,[], options); % (:,idx-1)
+%         toc(tt)
+
+        mdl_Y = P06_OutputFcn_HW(xk, u, p1, p2, p3, p4)';
+        disp(newline); disp(mdl_Y(yIND.Volt)')
         
         optCurr = u; % u<0 == Charging, u>0 == discharging
         cost = mpcinfo.Cost;
@@ -430,12 +454,22 @@ try
         curr = abs(optPSUCurr); % PSU Current. Using "curr" since script in nect line uses "curr"
         script_charge;
         
+        bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = balCurr;
         % send balance charges to balancer
         bal.SetBalanceCharges(balBoard_num, balCurr*sampleTime); % Send charges in As
         
+        % Collect Measurements
+        wait(0.1);
+        script_queryData;
+        script_failSafes; %Run FailSafe Checks
+        script_checkGUICmd; % Check to see if there are any commands from GUI
+        % if limits are reached, break loop
+        if errorCode == 1 || strcmpi(testStatus, "stop")
+            script_idle;
+        end
         
         temp = thermoData(2:end);
-        LPR = lookup2D( predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
+        LPR = lookup2D(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
             reshape(cells.curr(cellIDs), [], 1), reshape(cells.SOC(cellIDs), [], 1) );
         
         battData.time           = [battData.time        ; tElapsed_MPC   ]; ind = 1;
@@ -466,18 +500,18 @@ try
         MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\n", mpcinfo.ExitFlag, cost);
         
         for i = 1:NUMCELLS-1
-            tempStr = tempStr + sprintf("Ts%d = %.2f ºC\t\t" , i, states(5,i));
-            voltStr = voltStr + sprintf("Volt %d = %.4f V\t", i, states(1,i));
-            LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\t", i, states(7, i));
+            tempStr = tempStr + sprintf("Ts%d = %.2f ºC\t\t" , i, battData.Ts(end,i));
+            voltStr = voltStr + sprintf("Volt %d = %.4f V\t", i, battData.volt(end,i));
+            LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\t", i, battData.LiPlateRate(end,i));
             balStr = balStr + sprintf("Bal %d = %.4f A\t", i, battData.balCurr(end,i));
             currStr = currStr + sprintf("Curr %d = %.4f\t", i, battData.curr(end,i));
             socStr = socStr + sprintf("SOC %d = %.4f\t\t", i, battData.SOC(end, i));
         end
         
         for i = i+1:NUMCELLS
-            tempStr = tempStr + sprintf("Ts %d = %.2f ºC\n" , i, states(5,i));
-            voltStr = voltStr + sprintf("Volt %d = %.4f V\n", i, states(1,i));
-            LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\n", i, states(7, i));
+            tempStr = tempStr + sprintf("Ts %d = %.2f ºC\n" , i, battData.Ts(end,i));
+            voltStr = voltStr + sprintf("Volt %d = %.4f V\n", i, battData.volt(end,i));
+            LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\n", i, battData.LiPlateRate(end,i));
             balStr = balStr + sprintf("Bal %d = %.4f A\n", i, battData.balCurr(end,i));
             currStr = currStr + sprintf("Curr %d = %.4f\n", i, battData.curr(end,i));
             socStr = socStr + sprintf("SOC %d = %.4f\n", i, battData.SOC(end, i));
@@ -503,9 +537,10 @@ try
                 || (max(ifcurr < 0 & xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) >= 0.99))
             disp("Test Overcharged after: " + tElapsed_MPC + " seconds.")
             break;
-        elseif endFlag == true
+        elseif errorCode == 1
             disp("An error or Stop test request has occured." + newline...
                 + "Test Stopped After: " + tElapsed_MPC + " seconds.")
+            script_resetDevices;
             break;
         end
         
@@ -515,7 +550,7 @@ try
     disp("Test Completed After: " + tElapsed_MPC + " seconds.")
 
 catch ME
-    dataQueryTimerStopped();
+%     dataQueryTimerStopped();
     script_handleException;
 end
 
@@ -539,7 +574,7 @@ lprMdl = predMdl.LPR;
 
 p = data.PredictionHorizon;
 %     for i=1:p+1
-%         Y(i,:) = P06_OutputFcn(X(i,:)',U(i,:)',p1, p2)';
+%         Y(i,:) = P06_OutputFcn_HW(X(i,:)',U(i,:)',p1, p2)';
 %     end
 
 balCurr = U(2:p+1,1:NUMCELLS);
@@ -737,12 +772,12 @@ xIND = indices.x;
 
 p = data.PredictionHorizon;
 
-MAX_CELL_VOLT = cellData.MAX_CELL_VOLT;
+MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT;
 
 % % Old method
 % yIND = indices.y;
-% Y = P06_OutputFcn(X(2,:)',U(2,:)',p1, p2, p3, p4)';
-% cineq = (Y(yIND.Volt) - MAX_CELL_VOLT)';
+% Y = P06_OutputFcn_HW(X(2,:)',U(2,:)',p1, p2, p3, p4)';
+% cineq = (Y(yIND.Volt) - MAX_CHRG_VOLT)';
 
 horizonInd = 1:p+1; %+1; % 2:p+1
 
@@ -769,7 +804,7 @@ Z = lookupRS_OCV(battMdl.Lookup_tbl, soc(:), T_avg(:), curr(:));
 OCV = reshape(Z.OCV, size(soc));
 rs = reshape(Z.Rs, size(soc));
 Vt = OCV - V1 - V2 -(curr .* rs); % "(:)" forces vector to column vector
-cineq = (Vt - MAX_CELL_VOLT);
+cineq = (Vt - MAX_CHRG_VOLT);
 cineq = cineq(:);
 
 end
@@ -795,7 +830,7 @@ parameters = {p1, p2, p3, p4};
 x0 = x;
 u0 = u;
 
-f0 = P06_BattStateFcn(x0, u0, parameters{:});
+f0 = P06_BattStateFcn_HW(x0, u0, parameters{:});
 
 %% Get sizes
 Jx = zeros(nx, nx);
@@ -829,7 +864,7 @@ Jx(xIND.SOC, xIND.SOC) = eye(NUMCELLS); % Jacobian for the SOCs since they don't
 
 % dx = dv*xa(xIND.SOC);
 % x0(xIND.SOC) = x0(xIND.SOC) + dx;  % Perturb all states
-% f = P06_BattStateFcn(x0, u0, parameters{:});
+% f = P06_BattStateFcn_HW(x0, u0, parameters{:});
 % x0(xIND.SOC) = x0(xIND.SOC) - dx;  % Undo pertubation
 % df = (f - f0)./ repmat(dx, (nx/NUMCELLS), 1);
 % Jx(xIND.SOC, xIND.SOC) = diag(df(xIND.SOC, 1));
@@ -858,7 +893,7 @@ Jx = replaceDiag(Jx, df, [xIND.V1, xIND.V2], 0);
 % V1
 dx = dv*xa(xIND.V1);
 x0(xIND.V1) = x0(xIND.V1) + dx;  % Perturb all states
-f = P06_BattStateFcn(x0, u0, parameters{:});
+f = P06_BattStateFcn_HW(x0, u0, parameters{:});
 x0(xIND.V1) = x0(xIND.V1) - dx;  % Undo pertubation
 df = (f - f0)./ repmat(dx, (nx/NUMCELLS), 1);
 Jx(xIND.SOC, xIND.V1) = diag(df(xIND.SOC, 1));
@@ -870,7 +905,7 @@ Jx(xIND.Ts, xIND.V1) = diag(df(xIND.Ts, 1));
 % V2
 dx = dv*xa(xIND.V2);
 x0(xIND.V2) = x0(xIND.V2) + dx;  % Perturb all states
-f = P06_BattStateFcn(x0, u0, parameters{:});
+f = P06_BattStateFcn_HW(x0, u0, parameters{:});
 x0(xIND.V2) = x0(xIND.V2) - dx;  % Undo pertubation
 df = (f - f0)./ repmat(dx, (nx/NUMCELLS), 1);
 Jx(xIND.SOC, xIND.V2) = diag(df(xIND.SOC, 1));
@@ -921,7 +956,7 @@ Jx(: , xIND.Ts) = df_ts;
 % % TC
 % dx = dv*xa(xIND.Tc);
 % x0(xIND.Tc) = x0(xIND.Tc) + dx;  % Perturb all states
-% f = P06_BattStateFcn(x0, u0, parameters{:});
+% f = P06_BattStateFcn_HW(x0, u0, parameters{:});
 % x0(xIND.Tc) = x0(xIND.Tc) - dx;  % Undo pertubation
 % df = (f - f0)./ repmat(dx, (nx/NUMCELLS), 1);
 % Jx(xIND.SOC, xIND.Tc) = diag(df(xIND.SOC, 1));
@@ -936,7 +971,7 @@ Jx(xIND.Ts, xIND.Tc) = 0.352264366085013 * eye(NUMCELLS);
 % % TS
 % dx = dv*xa(xIND.Ts);
 % x0(xIND.Ts) = x0(xIND.Ts) + dx;  % Perturb all states
-% f = P06_BattStateFcn(x0, u0, parameters{:});
+% f = P06_BattStateFcn_HW(x0, u0, parameters{:});
 % x0(xIND.Ts) = x0(xIND.Ts) - dx;  % Undo pertubation
 % df = (f - f0)./ repmat(dx, (nx/NUMCELLS), 1);
 % Jx(xIND.SOC, xIND.Ts) = diag(df(xIND.SOC, 1));
@@ -955,13 +990,13 @@ ua = abs(u0); % (1:NUMCELLS)
 ua(ua < 1) = 1;
 du = dv*ua(1:NUMCELLS);
 u0(1:NUMCELLS) = u0(1:NUMCELLS) + du;
-f = P06_BattStateFcn(x0, u0, parameters{:});
+f = P06_BattStateFcn_HW(x0, u0, parameters{:});
 u0(1:NUMCELLS) = u0(1:NUMCELLS) - du;
 df = (f - f0) ./ repmat(du, (nx/NUMCELLS), 1);
 
 du = dv*ua(end);
 u0(end) = u0(end) + du;
-f = P06_BattStateFcn(x0, u0, parameters{:});
+f = P06_BattStateFcn_HW(x0, u0, parameters{:});
 u0(end) = u0(end) - du;
 df2 = (f - f0) ./ du;
 
@@ -981,7 +1016,7 @@ for j = 1:nmv
     k = j; % imv(j);
     du = dv*ua(k);
     u0(k) = u0(k) + du;
-    f = P06_BattStateFcn(x0, u0, parameters{:});
+    f = P06_BattStateFcn_HW(x0, u0, parameters{:});
     u0(k) = u0(k) - du;
     df = (f - f0)/du;
     Jmv(:,j) = df;
@@ -1022,7 +1057,7 @@ parameters = {p1, p2, p3, p4};
 x0 = x;
 u0 = u;
 
-f0 = P06_OutputFcn(x0, u0, parameters{:});
+f0 = P06_OutputFcn_HW(x0, u0, parameters{:});
 
 % Perturb each variable by a fraction (dv) of its current absolute value.
 dv = 1e-6;
@@ -1032,7 +1067,7 @@ xa(xa < 1) = 1;  % Prevents perturbation from approaching eps.
 for j = 1:nx
     dx = dv*xa(j);
     x0(j) = x0(j) + dx;
-    f = P06_OutputFcn(x0,u0,parameters{:});
+    f = P06_OutputFcn_HW(x0,u0,parameters{:});
     x0(j) = x0(j) - dx;
     C(:,j) = (f - f0)/dx;
 end
@@ -1074,7 +1109,7 @@ newDiagMat = (oldDiagMat .* ~diag(ind, offset)) + diag(newDiag, offset);
 end
 
 
-function dataQueryTimerFcn()
+function dataQueryTimerFcn(varargin)
 % Get latest states (Measurement)
 script_queryData;
 script_failSafes; %Run FailSafe Checks
@@ -1088,7 +1123,11 @@ end
 
 function dataQueryTimerStopped(varargin)
 % script_resetDevices;
-disp("dataQueryTimer has stopped");
+dataQueryTimer = varargin{1};
+% v2 = varargin{2}
 disp("dataQueryTimer Instant Period = " + num2str(dataQueryTimer.InstantPeriod) + "s");
 disp("dataQueryTimer Average Period = " + num2str(dataQueryTimer.AveragePeriod) + "s");
+    
+disp("dataQueryTimer has stopped");
+
 end
