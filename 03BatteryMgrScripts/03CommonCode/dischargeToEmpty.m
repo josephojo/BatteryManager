@@ -41,13 +41,13 @@ end
 try
     
 % Initializations
-script_initializeDevices; % Initialized devices like Eload, PSU etc.
 script_initializeVariables; % Run Script to initialize common variables
+script_initializeDevices; % Initialized devices like Eload, PSU etc.
 
 if strcmpi (cellConfig, 'parallel')
-    curr = -(sum(batteryParam.ratedCapacity(cellIDs))*cRate_dchrg); % X of rated Capacity
+    curr = (sum(batteryParam.ratedCapacity(cellIDs))*cRate_dchrg); % X of rated Capacity
 else
-    curr = -batteryParam.ratedCapacity(cellIDs(1))*cRate_dchrg; % X of rated Capacity
+    curr = batteryParam.ratedCapacity(cellIDs(1))*cRate_dchrg; % X of rated Capacity
 end
 
 trackSOCFS = false;
@@ -56,11 +56,15 @@ trackSOCFS = false;
 
 script_queryData; % Run Script to query data from devices
 script_failSafes; %Run FailSafe Checks
+if errorCode == 1 || strcmpi(testStatus, "stop")
+    script_idle;
+    return;
+end
 script_discharge; % Run Script to begin/update discharging process
 
 
 % While SOC is greater than 5%
-while battVolt > lowVoltLimit    
+while packVolt > lowVoltLimit    
     %% Measurements
     % Querys all measurements every readPeriod second(s)
     if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -103,7 +107,7 @@ if plotFigs == true
         'LineWidth', 3);
     hold on;
     plot(battTS.Time, currVals);
-    legend('battVolt','battCurr', 'SOC', 'Ah', 'profile');
+    legend('packVolt','packCurr', 'SOC', 'Ah', 'profile');
 end
 
 

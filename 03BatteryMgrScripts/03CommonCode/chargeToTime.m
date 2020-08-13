@@ -135,14 +135,18 @@ end
 % Initializations
 try
 
-    script_initializeDevices; % Initialized devices like Eload, PSU etc.
     script_initializeVariables; % Run Script to initialize common variables
+    script_initializeDevices; % Initialized devices like Eload, PSU etc.
     curr = abs(chargeCurr); %2.5A is 1C for the ANR26650
     
 %     testTimer = tic; % Start Timer for read period
     
     script_queryData; % Run Script to query data from devices
     script_failSafes; %Run FailSafe Checks
+    if errorCode == 1 || strcmpi(testStatus, "stop")
+        script_idle;
+        return;
+    end
     script_charge; % Run Script to begin/update charging process
 
     TimerScript = tic;

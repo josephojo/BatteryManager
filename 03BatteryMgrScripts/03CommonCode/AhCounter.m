@@ -165,7 +165,7 @@ try
 
     end
     
-catch MEX
+catch ME
     script_handleException;
 end
 

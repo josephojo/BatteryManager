@@ -133,19 +133,23 @@ end
 
 try
     % Initializations
-    script_initializeDevices; % Initialized devices like Eload, PSU etc.
     script_initializeVariables; % Run Script to initialize common variables
+    script_initializeDevices; % Initialized devices like Eload, PSU etc.
     curr = -abs(dischargeCurr); %2.5A is 1C for the ANR26650
     
 %     testTimer = tic; % Start Timer for read period
     
     script_queryData; % Run Script to query data from devices
     script_failSafes; %Run FailSafe Checks
+    if errorCode == 1 || strcmpi(testStatus, "stop")
+        script_idle;
+        return;
+    end
     script_discharge; % Run Script to begin/update discharging process
     
     if targSOC == 0        
-        % While battVolt is greater than low limit
-        while battVolt >= lowVoltLimit
+        % While packVolt is greater than low limit
+        while packVolt >= lowVoltLimit
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -167,7 +171,7 @@ try
         batteryParam.soc(cellIDs) = 0; % 0% DisCharged
     else
         % While SOC is greater than specified
-        while battSOC > targSOC
+        while packSOC > targSOC
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -192,22 +196,22 @@ try
     % Save data
     if tElasped > 5 %errorCode == 0 &&
         if numCells > 1
-            save(dataLocation + "006_" + cellConfig + "_DischargeTo" +num2str(round(battSOC*100,0))+ "%.mat", 'battTS', 'cellIDs');
+            save(dataLocation + "006_" + cellConfig + "_DischargeTo" +num2str(round(packSOC*100,0))+ "%.mat", 'battTS', 'cellIDs');
         else
-            save(dataLocation + "006_" + cellIDs(1) + "_DischargeTo" +num2str(round(battSOC*100,0))+ "%.mat", 'battTS');
+            save(dataLocation + "006_" + cellIDs(1) + "_DischargeTo" +num2str(round(packSOC*100,0))+ "%.mat", 'battTS');
         end
         % Save Battery Parameters
         save(dataLocation + "007BatteryParam.mat", 'batteryParam');
     end
     
     if plotFigs == true
-        currVals = ones(1, length(battTS.Time)) * curr;      
+        currVals = ones(1, length(battTS.Time)) * curr;
         plotBattData(battTS, 'noCore');
         hold on;
         subplot(3, 1, 1);
         plot(battTS.Time, currVals);
-        legend('battVolt','battCurr', 'profile', 'SOC');
-        end
+        legend('packVolt','packCurr', 'profile', 'SOC');
+    end
     
 catch MEX
     script_resetDevices;

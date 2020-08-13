@@ -133,19 +133,23 @@ end
 
 % Initializations
 try
-    script_initializeDevices; % Initialized devices like Eload, PSU etc.
     script_initializeVariables; % Run Script to initialize common variables
+    script_initializeDevices; % Initialized devices like Eload, PSU etc.
     curr = -abs(dischargeCurr); %2.5A is 1C for the ANR26650
     
 %     testTimer = tic; % Start Timer for read period
     
     script_queryData; % Run Script to query data from devices
     script_failSafes; %Run FailSafe Checks
+    if errorCode == 1 || strcmpi(testStatus, "stop")
+        script_idle;
+        return;
+    end
     script_discharge; % Run Script to begin/update charging process
     
     
     % While the battery voltage is less than the limit (cc mode)
-    while battVolt > targVolt
+    while packVolt > targVolt
         %% Measurements
         % Querys all measurements every readPeriod second(s)
         if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -169,9 +173,9 @@ try
     % Save data
     if tElasped > 5 % errorCode == 0 &&
         if numCells > 1
-            save(dataLocation + "006_" + cellConfig + "_DischargeTo" +num2str(round(battVolt,0))+ "V.mat", 'battTS', 'cellIDs');
+            save(dataLocation + "006_" + cellConfig + "_DischargeTo" +num2str(round(packVolt,0))+ "V.mat", 'battTS', 'cellIDs');
         else
-            save(dataLocation + "006_" + cellIDs(1) + "_DischargeTo" +num2str(round(battVolt,0))+ "V.mat", 'battTS');
+            save(dataLocation + "006_" + cellIDs(1) + "_DischargeTo" +num2str(round(packVolt,0))+ "V.mat", 'battTS');
         end
         % Save Battery Parameters
         save(dataLocation + "007BatteryParam.mat", 'batteryParam');

@@ -123,7 +123,7 @@ indices.x = xIND;
 indices.y = yIND;
 
 
-TARGET_SOC = 0.98;
+TARGET_SOC = 0.80; %0.98;
 LPR_Target = 50;
 
 % Balance Efficiencies
@@ -279,7 +279,7 @@ battData.volt           = cells.volt(cellIDs)';
 battData.curr           = cells.curr(cellIDs)'; % zeros(1, NUMCELLS);
 battData.LiPlateRate    = zeros(1, NUMCELLS);
 
-initialSOCs = cells.SOC(cellIDs); % [0.699, 0.5, 0.55, 0.55]
+initialSOCs = cells.SOC(cellIDs); % 
 
 battData.SOC            = initialSOCs(1:NUMCELLS, 1)';
 battData.Cap            = CAP;
@@ -323,8 +323,8 @@ try
     % Add Manipulated variable constraints
     % Small Rates affect speed a lot
     for i = 1:NUMCELLS
-        mpcObj.MV(i).Max =  MAX_BAL_CURR;      mpcObj.MV(i).RateMax =  1.0; % MAX_CELL_CURR;
-        mpcObj.MV(i).Min =  MIN_BAL_CURR;     mpcObj.MV(i).RateMin = -1.0; % -2; % -6
+        mpcObj.MV(i).Max =  MAX_BAL_CURR;      mpcObj.MV(i).RateMax =  2.0; % MAX_CELL_CURR;
+        mpcObj.MV(i).Min =  MIN_BAL_CURR;     mpcObj.MV(i).RateMin = -0.5; % -2; % -6
     end
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;
@@ -343,10 +343,10 @@ try
         mpcObj.States(i + (xTs-1) * NUMCELLS).Min =  0;
         mpcObj.States(i + (xTs-1) * NUMCELLS).ScaleFactor =  44;
         
-        % Volt
-        mpcObj.OV(i + (yVolt-1) * NUMCELLS).Max =  MAX_CHRG_VOLT(i) - 0.01;
-        mpcObj.OV(i + (yVolt-1) * NUMCELLS).Min =  MIN_DCHRG_VOLT(i);
-        mpcObj.OV(i + (yVolt-1) * NUMCELLS).ScaleFactor =  MAX_CHRG_VOLT(i);
+%         % Volt
+%         mpcObj.OV(i + (yVolt-1) * NUMCELLS).Max =  MAX_CHRG_VOLT(i) - 0.01;
+%         mpcObj.OV(i + (yVolt-1) * NUMCELLS).Min =  MIN_DCHRG_VOLT(i);
+%         mpcObj.OV(i + (yVolt-1) * NUMCELLS).ScaleFactor =  MAX_CHRG_VOLT(i);
     end
     bal.Set_OVUV_Threshold(MAX_CELL_VOLT(1, 1), MIN_CELL_VOLT(1, 1));
 
@@ -359,16 +359,16 @@ try
     
     mpcObj.Model.OutputFcn = @(x,u, p1, p2, p3, p4) ...
         P06_OutputFcn_HW(x, u, p1, p2, p3, p4); % SOC, Volt, Ts
-    mpcObj.Jacobian.OutputFcn = @(x,u,p1, p2, p3, p4) ... 
-        myOutputJacobian(x, u, p1, p2, p3, p4);
+%     mpcObj.Jacobian.OutputFcn = @(x,u,p1, p2, p3, p4) ... 
+%         myOutputJacobian(x, u, p1, p2, p3, p4);
     
     mpcObj.Optimization.CustomCostFcn = @(X,U,e,data, p1, p2, p3, p4)...
         myCostFunction(X, U, e, data, p1, p2, p3, p4);
     mpcObj.Jacobian.CustomCostFcn = @(x,u,e,data, p1, p2, p3, p4) ...
         myCostJacobian(x, u,e,data, p1, p2, p3, p4);
     
-    % mpcObj.Optimization.CustomIneqConFcn = @(X,U,e,data, p1, p2, p3, p4)...
-    %     myIneqConFunction(X,U,e,data, p1, p2, p3, p4);
+    mpcObj.Optimization.CustomIneqConFcn = @(X,U,e,data, p1, p2, p3, p4)...
+        myIneqConFunction(X,U,e,data, p1, p2, p3, p4);
     % mpcObj.Jacobian.CustomIneqConFcn = @(x,u,e,data, p1, p2, p3, p4) ...
     %     myIneqConJacobian(x, u,e,data, p1, p2, p3, p4);
     
@@ -387,7 +387,7 @@ try
     references = [repmat(TARGET_SOC, 1, NUMCELLS), repmat(LPR_Target, 1, NUMCELLS),...
          repmat(3, 1, NUMCELLS)];
     
-    u0 = [battData.curr, battData.optPSUCurr];
+    u0 = [battData.balCurr, battData.optPSUCurr];
     
     validateFcns(mpcObj, xk, u0, [], {p1, p2, p3, p4}, references);
 catch ME
@@ -398,7 +398,7 @@ end
 ekf = extendedKalmanFilter(@P06_BattStateFcn_HW, @P06_OutputFcn_HW, xk);
 zCov = repmat([0.02, 0.08, 0.01], NUMCELLS, 1); % Measurement Noise covariance (assuming no cross correlation)
 ekf.MeasurementNoise = diag(zCov(:));
-ekf.ProcessNoise = 0.05;
+ekf.ProcessNoise = 0.2;
 
 %% MPC Simulation Loop
 
@@ -423,8 +423,6 @@ try
     sTime = [];
     reset(r); 
     while max(xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) <= TARGET_SOC)
-        % Get Elapsed Time
-        tElapsed_MPC = toc(mpcTimer);
         
         idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MAX_CELL_CURR));
         SOC_Target = xk(xIND.SOC) + (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC - xk(xIND.SOC, 1));
@@ -437,8 +435,9 @@ try
             references,[], options); % (:,idx-1)
 %         toc(tt)
 
-        mdl_Y = P06_OutputFcn_HW(xk, u, p1, p2, p3, p4)';
-        disp(newline); disp(mdl_Y(yIND.Volt)')
+        mdl_X = P06_BattStateFcn(xk, u, p1, p2, p3, p4);
+        mdl_Y = P06_OutputFcn_HW(mdl_X, u, p1, p2, p3, p4)';
+%         disp(newline); disp(mdl_Y(yIND.Volt))
         
         optCurr = u; % u<0 == Charging, u>0 == discharging
         cost = mpcinfo.Cost;
@@ -459,7 +458,7 @@ try
         bal.SetBalanceCharges(balBoard_num, balCurr*sampleTime); % Send charges in As
         
         % Collect Measurements
-        wait(0.1);
+        wait(0.05);
         script_queryData;
         script_failSafes; %Run FailSafe Checks
         script_checkGUICmd; % Check to see if there are any commands from GUI
@@ -471,6 +470,11 @@ try
         temp = thermoData(2:end);
         LPR = lookup2D(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
             reshape(cells.curr(cellIDs), [], 1), reshape(cells.SOC(cellIDs), [], 1) );
+        
+        waitfor(r);
+        
+        % Get Elapsed Time
+        tElapsed_MPC = toc(mpcTimer);
         
         battData.time           = [battData.time        ; tElapsed_MPC   ]; ind = 1;
         battData.volt           = [battData.volt        ; reshape(cells.volt(cellIDs), 1, [])]; ind = ind + 1;
@@ -522,6 +526,7 @@ try
         disp(num2str(tElapsed_MPC,'%.2f') + " seconds");
         sTime = [sTime; tElapsed_MPC - prevElapsed];
         disp("STime: " + sTime(end, 1) + " Seconds."); 
+            disp(mdl_Y(yIND.Volt))
         fprintf(tempStr + newline);
         fprintf(voltStr + newline);
         fprintf(LPRStr + newline);
@@ -532,7 +537,8 @@ try
         fprintf(socStr);
         
         % curr > 0 = Discharging
-        ifcurr = optCurr(1:NUMCELLS) + optCurr(end);
+        % Remaining Charge time
+        ifcurr = combineCurrents(optPSUCurr, balCurr, currMdl);
         if (max(ifcurr > 0 & xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) <= 0.01))...
                 || (max(ifcurr < 0 & xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) >= 0.99))
             disp("Test Overcharged after: " + tElapsed_MPC + " seconds.")
@@ -545,7 +551,7 @@ try
         end
         
         prevElapsed = tElapsed_MPC;
-        waitfor(r);
+        
     end
     disp("Test Completed After: " + tElapsed_MPC + " seconds.")
 
@@ -671,7 +677,6 @@ J = sum([...
 
 end
 
-
 function [G, Gmv, Ge] = myCostJacobian(X, U, e, data, p1, p2, p3, p4)
 % Parameters (p#)
 % dt          = p1;   % Algorithm sample time
@@ -759,7 +764,6 @@ Ge = Je;
 
 end
 
-
 function cineq = myIneqConFunction(X, U, e, data, p1, p2, p3, p4)
 % Parameters (p#)
 % dt          = p1;   % Algorithm sample time
@@ -768,47 +772,254 @@ cellData    = p3;   % Constant Cell Data
 indices     = p4;   % Indices for the STATES (x)and OUTPUTS (y) presented as a struts
 
 % NUMCELLS = cellData.NUMCELLS;
-xIND = indices.x;
+% xIND = indices.x;
+yIND = indices.y;
 
 p = data.PredictionHorizon;
 
-MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT;
-
-% % Old method
-% yIND = indices.y;
-% Y = P06_OutputFcn_HW(X(2,:)',U(2,:)',p1, p2, p3, p4)';
-% cineq = (Y(yIND.Volt) - MAX_CHRG_VOLT)';
+MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.02;
 
 horizonInd = 1:p+1; %+1; % 2:p+1
-
-% New method - Calculating voltage directly here
-soc = X(horizonInd, xIND.SOC);
-V1 = X(horizonInd,  xIND.V1);
-V2 = X(horizonInd,  xIND.V2);
-Tc = X(horizonInd,  xIND.Tc);
-Ts = X(horizonInd,  xIND.Ts);
-T_avg = (Tc + Ts)/2;
-
-% Compute Actual Current Through cells
-balCurr = U(2:p+1,1:NUMCELLS);
-psuCurr =  U(2:p+1, end);
-logicalInd = balCurr' >= 0;
-balActual_dchrg = predMdl.Curr.T_dchrg * (balCurr' .* (logicalInd));
-balActual_chrg = predMdl.Curr.T_chrg * (balCurr' .* (~logicalInd));
-balActual = balActual_chrg + balActual_dchrg;
-curr = psuCurr + balActual'; % Actual Current in each cell
-
-% curr = psuCurr + balCurr;
-
-Z = lookupRS_OCV(battMdl.Lookup_tbl, soc(:), T_avg(:), curr(:)); 
-OCV = reshape(Z.OCV, size(soc));
-rs = reshape(Z.Rs, size(soc));
-Vt = OCV - V1 - V2 -(curr .* rs); % "(:)" forces vector to column vector
-cineq = (Vt - MAX_CHRG_VOLT);
-cineq = cineq(:);
+Y = zeros(p, indices.ny);
+for i = 1:p+1
+    Y(i,:) = P06_OutputFcn_HW(X(i,:)',U(i,:)',p1, p2, p3, p4)';
+end
+cineq0 = (Y(horizonInd, yIND.Volt) - MAX_CHRG_VOLT(:)')';
+cineq = cineq0(:);
 
 end
 
+function [Geq, Gmv, Ge] = myIneqConJacobian(X, U, e, data, p1, p2, p3, p4)
+% Parameters (p#)
+% dt          = p1;   % Algorithm sample time
+% predMdl     = p2;   % Predictive Battery Model Structure
+cellData    = p3;   % Constant Cell Data
+indices     = p4;   % Indices for the STATES (x)and OUTPUTS (y) presented as a struts
+
+NUMCELLS = cellData.NUMCELLS;
+xIND = indices.x;
+
+parameters = {p1, p2, p3, p4};
+p = data.PredictionHorizon;
+
+horizonInd = 1:p+1; %+1; % 2:p+1 % Update regularly from "myIneqConFunction"
+
+x0 = X;
+u0 = U;
+
+%% Get sizes
+nx = size(x0,2);
+imv = data.MVIndex;
+nmv = length(imv);
+f0 = myIneqConFunction(x0, u0, e, data, parameters{:});
+nf = length(f0);    
+Jx = zeros(nf, nx, p);
+Jmv = zeros(nf, nmv, p);
+Je = zeros(nf, 1);
+% Perturb each variable by a fraction (dv) of its current absolute value.
+dv = 1e-6;
+
+%% Get Jx
+xa = abs(x0);
+xa(xa < 1) = 1;  % Prevents perturbation from approaching eps.
+
+for ix = horizonInd 
+    % Avoid using ix=1 ("how does the ineq change wrt to the previous state changing")
+    % since it doesn't change the ineqs
+    if ix==1, continue; end 
+    
+    %{
+    % SOC
+    dx = dv*xa(xIND.SOC);
+    x0(ix, xIND.SOC) = x0(ix, xIND.SOC) + dx;  % Perturb all states
+    f = myIneqConFunction(x0, U, e, data, parameters{:});
+    x0(ix, xIND.SOC) = x0(ix, xIND.SOC) - dx;  % Undo pertubation
+    dxx = repmat(dx, length(f0)/NUMCELLS, 1);
+    df = (f - f0)./ dxx(:);
+    dff = zeros(length(f0), NUMCELLS);
+    for cellNum = 1:NUMCELLS
+        ind = 1+(cellNum-1)*length(horizonInd) : cellNum*length(horizonInd);
+        dff(ind, cellNum) = df(ind);
+    end
+    Jx(:, xIND.SOC, ix-1) = dff;
+    
+    % V1
+    dx = dv*xa(xIND.V1);
+    x0(ix, xIND.V1) = x0(ix, xIND.V1) + dx;  % Perturb all states
+    f = myIneqConFunction(x0, U, e, data, parameters{:});
+    x0(ix, xIND.V1) = x0(ix, xIND.V1) - dx;  % Undo pertubation
+    dxx = repmat(dx, length(f0)/NUMCELLS, 1);
+    df = (f - f0)./ dxx(:);
+    dff = zeros(length(f0), NUMCELLS);
+    for cellNum = 1:NUMCELLS
+        ind = 1+(cellNum-1)*length(horizonInd) : cellNum*length(horizonInd);
+        dff(ind, cellNum) = df(ind);
+    end
+    Jx(:, xIND.V1, ix-1) = dff;
+    
+    % V2
+    dx = dv*xa(xIND.V2);
+    x0(ix, xIND.V2) = x0(ix, xIND.V2) + dx;  % Perturb all states
+    f = myIneqConFunction(x0, U, e, data, parameters{:});
+    x0(ix, xIND.V2) = x0(ix, xIND.V2) - dx;  % Undo pertubation
+    dxx = repmat(dx, length(f0)/NUMCELLS, 1);
+    df = (f - f0)./ dxx(:);
+    dff = zeros(length(f0), NUMCELLS);
+    for cellNum = 1:NUMCELLS
+        ind = 1+(cellNum-1)*length(horizonInd) : cellNum*length(horizonInd);
+        dff(ind, cellNum) = df(ind);
+    end
+    Jx(:, xIND.V2, ix-1) = dff;
+    
+    % Tc
+    dx = dv*xa(xIND.Tc);
+    x0(ix, xIND.Tc) = x0(ix, xIND.Tc) + dx;  % Perturb all states
+    f = myIneqConFunction(x0, U, e, data, parameters{:});
+    x0(ix, xIND.Tc) = x0(ix, xIND.Tc) - dx;  % Undo pertubation
+    dxx = repmat(dx, length(f0)/NUMCELLS, 1);
+    df = (f - f0)./ dxx(:);
+    dff = zeros(length(f0), NUMCELLS);
+    for cellNum = 1:NUMCELLS
+        ind = 1+(cellNum-1)*length(horizonInd) : cellNum*length(horizonInd);
+        dff(ind, cellNum) = df(ind);
+    end
+    Jx(:, xIND.Tc, ix-1) = dff;
+    
+    % Ts
+    dx = dv*xa(xIND.Ts);
+    x0(ix, xIND.Ts) = x0(ix, xIND.Ts) + dx;  % Perturb all states
+    f = myIneqConFunction(x0, U, e, data, parameters{:});
+    x0(ix, xIND.Ts) = x0(ix, xIND.Ts) - dx;  % Undo pertubation
+    dxx = repmat(dx, length(f0)/NUMCELLS, 1);
+    df = (f - f0)./ dxx(:);
+    dff = zeros(length(f0), NUMCELLS);
+    for cellNum = 1:NUMCELLS
+        ind = 1+(cellNum-1)*length(horizonInd) : cellNum*length(horizonInd);
+        dff(ind, cellNum) = df(ind);
+    end
+    Jx(:, xIND.Ts, ix-1) = dff;
+    %}
+    
+    Jx(1+(ix-1)*NUMCELLS:ix*NUMCELLS, xIND.V1, ix-1) = -1 * eye(NUMCELLS);
+    Jx(1+(ix-1)*NUMCELLS:ix*NUMCELLS, xIND.V2, ix-1) = -1 * eye(NUMCELLS);
+
+end
+
+%% Get Ju
+%{
+ua = abs(u0);
+ua(ua < 1) = 1;
+k = 1:NUMCELLS;
+
+
+for i = horizonInd(horizonInd <= p-1) 
+        du = dv*ua(i, k);
+        u0(i,k) = u0(i,k) + du;
+        f = myIneqConFunction(X, u0, e, data, parameters{:});
+        u0(i,k) = u0(i,k) - du;
+        duu = repmat(du, length(f0)/NUMCELLS, 1);
+        df = (f - f0)./ duu(:);
+        dff = zeros(length(f0), NUMCELLS);
+        for cellNum = 1:NUMCELLS
+            ind = 1+(cellNum-1)*length(horizonInd) : cellNum*length(horizonInd);
+            dff(ind, cellNum) = df(ind);
+        end
+        Jmv(:, k, i) = dff;
+        Jmv(:, nmv, i) = df;
+end
+if max((horizonInd == p) | (horizonInd == p+1))
+        du = dv*ua(k);
+        u0(p,k) = u0(p,k) + du;
+        u0(p+1,k) = u0(p+1,k) + du;
+        f = myIneqConFunction(X, u0, e, data, parameters{:});
+        u0(p,k) = u0(p,k) - du;
+        u0(p+1,k) = u0(p+1,k) - du;
+        duu = repmat(du, length(f0)/NUMCELLS, 1);
+        df = (f - f0)./ duu(:);
+        dff = zeros(length(f0), NUMCELLS);
+        for cellNum = 1:NUMCELLS
+            ind = 1+(cellNum-1)*length(horizonInd) : cellNum*length(horizonInd);
+            dff(ind, cellNum) = df(ind);
+        end
+        Jmv(:, k, p) = dff;
+        Jmv(:, nmv, p) = df;
+end
+%}
+ua = abs(u0);
+ua(ua < 1) = 1;
+
+i = 1;
+for j = 1:nmv
+    k = imv(j);
+    du = dv*ua(k);
+    u0(i,k) = u0(i,k) + du;
+    f = myIneqConFunction(X, u0, e, data, parameters{:});
+    u0(i,k) = u0(i,k) - du;
+    df = (f - f0)/du;
+    Jmv(:,j,i) = df;
+end
+
+matx = Jmv( 1+(horizonInd(1)-1)*NUMCELLS : horizonInd(1)*NUMCELLS , :, i );
+for x = 2:nmv-1
+    Jmv( 1+(horizonInd(x)-1)*NUMCELLS : horizonInd(x)*NUMCELLS , :, x ) = matx;
+end
+
+Jmv( 1+(horizonInd(p)-1)*NUMCELLS : horizonInd(p+1)*NUMCELLS , :, p ) = [matx; matx];
+
+
+% for j = 1:nmv
+%     k = imv(j);
+%     du = dv*ua(k);
+%     u0(p,k) = u0(p,k) + du;
+%     u0(p+1,k) = u0(p+1,k) + du;
+%     f = myIneqConFunction(X, u0, e, data, parameters{:});
+%     u0(p,k) = u0(p,k) - du;
+%     u0(p+1,k) = u0(p+1,k) - du;
+%     df = (f - f0)/du;
+%     Jmv(:,j,p) = df;
+% end
+
+
+
+%{
+% From Matlab's ineq function
+for i = 1:p-1
+    for j = 1:nmv
+        k = imv(j);
+        du = dv*ua(k);
+        u0(i,k) = u0(i,k) + du;
+        f = myIneqConFunction(X, u0, e, data, parameters{:});
+        u0(i,k) = u0(i,k) - du;
+        df = (f - f0)/du;
+%         for ii = 1:nf
+%             Jmv(ii,j,i) = df(ii);
+%         end
+        Jmv(:,j,i) = df;
+    end
+end
+% special handling of p to account for mv(p+1,:) = mv(p,:)
+for j = 1:nmv
+    k = imv(j);
+    du = dv*ua(k);
+    u0(p,k) = u0(p,k) + du;
+    u0(p+1,k) = u0(p+1,k) + du;
+    f = myIneqConFunction(X, u0, e, data, parameters{:});
+    u0(p,k) = u0(p,k) - du;
+    u0(p+1,k) = u0(p+1,k) - du;
+    df = (f - f0)/du;
+%     for ii = 1:nf
+%         Jmv(ii,j,p) = df(ii);
+%     end
+    Jmv(:,j,p) = df;
+end
+%}
+
+%% Outputs
+Geq = permute(Jx, [3,2,1]);
+Gmv = permute(Jmv, [3,2,1]);
+Ge = Je(:);
+
+end
 
 function [A, Bmv] = myStateJacobian(x, u, p1, p2, p3, p4)
 
@@ -1027,7 +1238,6 @@ Bmv = Jmv;
 
 end
 
-
 function C = myOutputJacobian(x, u, p1, p2, p3, p4)
 % Parameters (p#)
 % dt          = p1;   % Algorithm sample time
@@ -1076,7 +1286,15 @@ end
 
 end
 
+function combCurr = combineCurrents(psuCurr, balCurr, currMdl)
+    % Compute Actual Current Through cells
+    logicalInd = balCurr(:) >= 0;
+    balActual_dchrg = currMdl.T_dchrg * (balCurr(:) .* (logicalInd));
+    balActual_chrg = currMdl.T_chrg * (balCurr(:) .* (~logicalInd));
+    balActual = balActual_chrg + balActual_dchrg;
+    combCurr = psuCurr + balActual(:); % Actual Current in each cell
 
+end
 
 
 function newDiagMat = replaceDiag(oldDiagMat, vector, indRangeV, offset)

@@ -35,13 +35,13 @@ for cellID = cellIDs
         warning(error);
         errorCode = 1;
         testStatus = "stop";
-    elseif cells.curr(cellID) <= batteryParam.minCurr(cellID)
-        error = sprintf("Battery CURRENT for " + cellID + " is Less than Limit: %.2f V", battCurr);
+    elseif cells.curr(cellID) < batteryParam.minCurr(cellID) % During Charge
+        error = sprintf("Battery CURRENT for " + cellID + " is Less than Limit: %.2f A", packCurr);
         warning(error);
         errorCode = 1;
         testStatus = "stop";
-    elseif cells.curr(cellID) >= batteryParam.maxCurr(cellID)
-        error = sprintf("Battery CURRENT for " + cellID + " is Greater than Limit: %.2f V", battCurr);
+    elseif cells.curr(cellID) > batteryParam.maxCurr(cellID) % During Discharge
+        error = sprintf("Battery CURRENT for " + cellID + " is Greater than Limit: %.2f A", packCurr);
         warning(error);
         errorCode = 1;
         testStatus = "stop";

@@ -133,14 +133,18 @@ end
 
 try
     % Initializations
-    script_initializeDevices; % Initialized devices like Eload, PSU etc.
     script_initializeVariables; % Run Script to initialize common variables
+    script_initializeDevices; % Initialized devices like Eload, PSU etc.
     curr = -abs(dischargeCurr); %2.5A is 1C for the ANR26650
     
 %     testTimer = tic; % Start Timer for read period
 
     script_queryData; % Run Script to query data from devices
     script_failSafes; %Run FailSafe Checks
+    if errorCode == 1 || strcmpi(testStatus, "stop")
+        script_idle;
+        return;
+    end
     script_discharge; % Run Script to begin/update discharging process
     
     TimerScript = tic;
@@ -190,7 +194,7 @@ try
         hold on;
         subplot(3, 1, 1);
         plot(battTS.Time, currVals);
-        legend('battVolt','battCurr', 'profile', 'SOC');
+        legend('packVolt','packCurr', 'profile', 'SOC');
     end
     
     

@@ -142,8 +142,8 @@ try
     
     disp("Waiting for " + num2str(targTime) + " Seconds!");
     
-    script_initializeDevices;
     script_initializeVariables;
+    script_initializeDevices;
 
     verbose = param.verbosity;
     battState = "idle";
@@ -151,6 +151,11 @@ try
     testTimer = tic; % For sampling measured data
     
     script_queryData;
+    script_failSafes; %Run FailSafe Checks
+    if errorCode == 1 || strcmpi(testStatus, "stop")
+        script_idle;
+        return;
+    end
 
     WaitTimer = tic;
     waitTicker = 0;

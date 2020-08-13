@@ -35,8 +35,13 @@ param = struct('cellIDs',        [],...
 cellIDs = param.cellIDs;
 
 
-script_initializeDevices;
 script_initializeVariables;
+script_initializeDevices;
+script_failSafes; %Run FailSafe Checks
+if errorCode == 1 || strcmpi(testStatus, "stop")
+    script_idle;
+    return;
+end
 
 battState = "idle";
 script_idle;

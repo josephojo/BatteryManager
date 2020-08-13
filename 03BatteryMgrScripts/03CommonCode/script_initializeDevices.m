@@ -241,9 +241,12 @@ elseif strcmpi(caller, "cmdWindow")
     %DC2100A Balancer
     %##########################################################################
     balPort = 'COM9';
-    if ~exist('bal','var') ...
-            || (isvalid(bal) && strcmpi(bal.serialStatus(), "Disconnected"))
-        bal = DC2100A(balPort, eventLog);
+    if exist('testSettings', 'var') && isfield(testSettings, 'cellConfig')...
+            && strcmpi(testSettings.cellConfig, 'series')
+        if ~exist('bal','var') ...
+                || (isvalid(bal) && strcmpi(bal.serialStatus(), "Disconnected"))
+            bal = DC2100A(balPort, eventLog);
+        end
     end
     %--------------------------------------------------------------------------
     

@@ -22,10 +22,14 @@ trackSOCFS = false;
 %% CC Mode
 script_queryData; % Run Script to query data from devices
 script_failSafes; %Run FailSafe Checks
+if errorCode == 1 || strcmpi(testStatus, "stop")
+    script_idle;
+    return;
+end
 script_charge; % Run Script to begin/update charging process
 
 % While the battery voltage is less than the limit (our 100% SOC) (CC mode)
-while battVolt <= highVoltLimit   
+while packVolt <= highVoltLimit   
     %% Measurements
     % Querys all measurements every readPeriod second(s)
     if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -52,7 +56,7 @@ end
 % script_queryData; % Run Script to query data from devices
 
 % While the battery voltage is less than the limit (our 100% SOC) (CC mode)
-while battCurr > cvMinCurr    
+while abs(packCurr) > abs(cvMinCurr)   
     %% Measurements
     % Querys all measurements every readPeriod second(s)
     if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -80,7 +84,7 @@ if plotFigs == true
         'LineWidth', 3);
     hold on;
     plot(battTS.Time, currVals);
-    legend('battVolt','battCurr', 'SOC', 'Ah', 'profile');
+    legend('packVolt','packCurr', 'SOC', 'Ah', 'profile');
 end
 
 % Save data

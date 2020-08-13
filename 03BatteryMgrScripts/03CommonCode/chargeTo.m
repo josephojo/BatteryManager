@@ -150,7 +150,7 @@ try
     if targSOC == 1
         %% CC mode
         % While the battery voltage is less than the limit (our 100% SOC)
-        while battVolt <= highVoltLimit
+        while packVolt < highVoltLimit
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -172,7 +172,7 @@ try
         
         %% CV Mode
         % While the battery voltage is less than the limit (our 100% SOC) (CC mode)
-        while battCurr >= cvMinCurr
+        while abs(packCurr) > abs(cvMinCurr)
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -195,9 +195,9 @@ try
         batteryParam.soc(cellIDs) = 1; % 100% Charged
     else
         % While the current SOC is less than the specified soc
-        while battSOC < targSOC
+        while packSOC < targSOC
             %% CCCV, Measurements and FailSafes
-            if battVolt <= highVoltLimit || battCurr >= cvMinCurr
+            if packVolt < highVoltLimit || abs(packCurr) > abs(cvMinCurr)
                 %% Measurements
                 % Querys all measurements every readPeriod second(s)
                 if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -227,9 +227,9 @@ try
     % Save data
     if tElasped > 5 % errorCode == 0 &&
         if numCells > 1
-            save(dataLocation + "005_" + cellConfig + "_ChargeTo" +num2str(round(battSOC*100,0))+ "%.mat", 'battTS', 'cellIDs');
+            save(dataLocation + "005_" + cellConfig + "_ChargeTo" +num2str(round(packSOC*100,0))+ "%.mat", 'battTS', 'cellIDs');
         else
-            save(dataLocation + "005_" + cellIDs(1) + "_ChargeTo" +num2str(round(battSOC*100,0))+ "%.mat", 'battTS');
+            save(dataLocation + "005_" + cellIDs(1) + "_ChargeTo" +num2str(round(packSOC*100,0))+ "%.mat", 'battTS');
         end
         % Save Battery Parameters
         save(dataLocation + "007BatteryParam.mat", 'batteryParam');

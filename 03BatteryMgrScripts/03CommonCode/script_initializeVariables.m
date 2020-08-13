@@ -92,13 +92,13 @@ if caller == "cmdWindow"
 
             prompt = {'Chemistry?: ','Capacity (Ah)?: ', 'ChargeTo Voltage (V)?: ', 'DishargeTo Voltage (V)?: ',...
                  'CV charge stop current (A)?: ', 'Maximum Voltage Limit (V)?: ',...
-                'Minimum Voltage Limit (V)?: ', 'Maximum Charge Current Limit (A)?: ', ...
-                'Maximum Discharge Current Limit (A)?: ', 'Rated Capacity from Manufacturer (Ah)?: ',...
+                'Minimum Voltage Limit (V)?: ', 'Maximum Discharge Current Limit (A)?: ', ...
+                'Maximum Charge Current Limit (A)?: ', 'Rated Capacity from Manufacturer (Ah)?: ',...
                 'Maximum Surface Temp Limit (°C)?: ', 'Maximum Core Temp Limit (°C)?: '};
             dlgtitle = ['Parameter input for Cell ID ' char(cellID)];
             dims = [1 50];
-            definput = {'LFP', '2.5', '3.6', '2.5', '0.125', '3.61', '2.49', '16',...
-                '-30', '2.5', '50', '55'};
+            definput = {'LFP', '2.5', '3.6', '2.5', '0.125', '3.61', '2.49', '30',...
+                '-16', '2.5', '50', '55'};
             params = inputdlg(prompt,dlgtitle,dims,definput);
 
             chemistry       = upper(string(params{1}));
@@ -110,7 +110,7 @@ if caller == "cmdWindow"
             maxVolt         = str2double(params{6});
             minVolt         = str2double(params{7});
             maxCurr         = str2double(params{8});
-            minCurr         = -abs(str2double(params{9}));
+            minCurr         = -abs(str2double(params{9})); % For while charging
             ratedCapacity   = str2double(params{10});
             maxSurfTemp     = str2double(params{11});
             maxCoreTemp     = str2double(params{12});
@@ -353,7 +353,7 @@ else
     end
 end
 
-% verbosity = 0; % How often to display (stream to screen). 1 = constantly, 0 = once a while
+verbosity = 0; % How often to display (stream to screen). 1 = constantly, 0 = once a while
 if ~exist("verbosity", 'var')
     verbosity = 1;
 end

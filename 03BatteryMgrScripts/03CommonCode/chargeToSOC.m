@@ -137,21 +137,25 @@ end
 
 try
     % Initializations
-    script_initializeDevices; % Initialized devices like Eload, PSU etc.
     script_initializeVariables; % Run Script to initialize common variables
+    script_initializeDevices; % Initialized devices like Eload, PSU etc.
     curr = chargeCurr; %2.5A is 1C for the ANR26650
     
 %     testTimer = tic; % Start Timer for read period
 
     script_queryData; % Run Script to query data from devices
     script_failSafes; %Run FailSafe Checks
+    if errorCode == 1 || strcmpi(testStatus, "stop")
+        script_idle;
+        return;
+    end
     script_charge; % Run Script to begin/update charging process
     
     if targSOC == 1
         trackSOCFS = false; % Don't complain/warn the user if the SOC goes beyond 1 since we're tracking voltage
         %% CC mode
         % While the battery voltage is less than the limit (our 100% SOC)
-        while battVolt <= highVoltLimit
+        while packVolt < highVoltLimit
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -173,7 +177,7 @@ try
         
         %% CV Mode
         % While the battery voltage is less than the limit (our 100% SOC) (CC mode)
-        while battCurr >= cvMinCurr
+        while abs(packCurr) > abs(cvMinCurr) % Cuz Charge current is negative
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -196,9 +200,9 @@ try
         batteryParam.soc(cellIDs) = 1; % 100% Charged
     else
         % While the current SOC is less than the specified soc
-        while battSOC < targSOC
+        while packSOC < targSOC
             %% CCCV, Measurements and FailSafes
-            if battVolt <= highVoltLimit || battCurr >= cvMinCurr
+            if packVolt < highVoltLimit || abs(packCurr) > abs(cvMinCurr)
                 %% Measurements
                 % Querys all measurements every readPeriod second(s)
                 if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -228,9 +232,9 @@ try
     % Save data
     if tElasped > 5 % errorCode == 0 &&
         if numCells > 1
-            save(dataLocation + "005_" + cellConfig + "_ChargeTo" +num2str(round(battSOC*100,0))+ "%.mat", 'battTS', 'cellIDs');
+            save(dataLocation + "005_" + cellConfig + "_ChargeTo" +num2str(round(packSOC*100,0))+ "%.mat", 'battTS', 'cellIDs');
         else
-            save(dataLocation + "005_" + cellIDs(1) + "_ChargeTo" +num2str(round(battSOC*100,0))+ "%.mat", 'battTS');
+            save(dataLocation + "005_" + cellIDs(1) + "_ChargeTo" +num2str(round(packSOC*100,0))+ "%.mat", 'battTS');
         end
         % Save Battery Parameters
         save(dataLocation + "007BatteryParam.mat", 'batteryParam');

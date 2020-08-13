@@ -1790,14 +1790,14 @@ classdef DC2100A < handle
                                         = LTC3300.Cell_Balancer.BALANCE_ACTION.Discharge;
                                 end
                                 balance_timer(cell_num +1) ...
-                                    = bitand(balancer_state, 0x7FFF) ...
+                                    = double(bitand(balancer_state, 0x7FFF)) ...
                                     * LTC3300.Cell_Balancer.BALANCE_TIME_RESOLUTION;
                                 index = index + num_bytes;
                             end
                             
                             % get the max balance time
                             num_bytes = 4;
-                            max_time = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes))...
+                            max_time = double(hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes)))...
                                 * LTC3300.Cell_Balancer.BALANCE_TIME_RESOLUTION;
                             index = index + num_bytes;
                             
@@ -1808,7 +1808,7 @@ classdef DC2100A < handle
                             
                             % get the min balance time
                             num_bytes = 4;
-                            min_time = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes))...
+                            min_time = double(hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes)))...
                                 * LTC3300.Cell_Balancer.BALANCE_TIME_RESOLUTION;
                             index = index + num_bytes;
                             
