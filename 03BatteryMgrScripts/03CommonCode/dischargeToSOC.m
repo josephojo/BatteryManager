@@ -197,9 +197,9 @@ try
     % Save data
     if tElasped > 5 %errorCode == 0 &&
         if numCells > 1
-            save(dataLocation + "006_" + cellConfig + "_DischargeTo" +num2str(round(packSOC*100,0))+ "%.mat", 'battTS', 'cellIDs');
+            save(dataLocation + "006_" + cellConfig + "_DischargeToSOC.mat", 'battTS', 'cellIDs');
         else
-            save(dataLocation + "006_" + cellIDs(1) + "_DischargeTo" +num2str(round(packSOC*100,0))+ "%.mat", 'battTS');
+            save(dataLocation + "006_" + cellIDs(1) + "_DischargeToSOC.mat", 'battTS');
         end
         % Save Battery Parameters
         save(dataLocation + "007BatteryParam.mat", 'batteryParam');
