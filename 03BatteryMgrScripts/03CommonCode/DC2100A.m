@@ -215,6 +215,11 @@ classdef DC2100A < handle
         % Balance Algorithm Constants
         MA_PER_A = 1000; % Convert Amps to mAmps
         
+        % Should the the mfg data in the EEPROM be modified or just the
+        % user values. 
+        % Setting this to true will completely overwrite the Factory Set
+        % Data
+        MFG_ENABLED = false; 
     end
       
     
@@ -1014,10 +1019,10 @@ classdef DC2100A < handle
                                 % Figure out if an action is being taken due to the new OV/UV condition.
                                 if (((system_ov_last == false) && (obj.Get_SystemOV() == true)) || ...
                                         ((system_uv_last == false) && (obj.Get_SystemUV() == true)))
-                                    
+
                                     % Stop balancing.
                                     if obj.isBalancing == true
-                                        obj.Timed_Balance_Stop(false);
+                                        obj.Timed_Balance_Stop(board_num, false);
                                         if ~strcmp(action_string, "")
                                             action_string = action_string + "/";
                                         end
@@ -1036,7 +1041,7 @@ classdef DC2100A < handle
                                     if ~strcmp(action_string, "")
                                         popupStr = DC2100A.SET_POPUP_TEXT(action_string, ...
                                             condition_string, board_num, true);
-                                        errordlg(popupStr, "OV or UV Error");
+%                                         errordlg(popupStr, "OV or UV Error"); % Popup in matlab is still too slow
                                     end
                                     
                                     % Create error log entry
@@ -1757,6 +1762,7 @@ classdef DC2100A < handle
                 case DC2100A.USB_PARSER_TIMED_BALANCE_COMMAND
                     % Process the timed balance data for one board
                     try
+
                         status = ErrorCode.NO_ERROR;
                         balance_action = zeros(1, DC2100A.MAX_CELLS);
                         balance_timer = zeros(1, DC2100A.MAX_CELLS);
@@ -1778,7 +1784,6 @@ classdef DC2100A < handle
                             num_bytes = 4;
                             for cell_num = 0 : DC2100A.MAX_CELLS - 1
                                 balancer_state = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
-                                
                                 if balancer_state == 0
                                     balance_action(cell_num +1) ...
                                         = LTC3300.Cell_Balancer.BALANCE_ACTION.None;
@@ -1825,7 +1830,12 @@ classdef DC2100A < handle
                                 obj.Timed_Balancers(board_num +1, cell_num +1)...
                                     .bal_timer = balance_timer(cell_num +1);
                             end
-                            obj.Min_Balance_Time_Value = min_time;
+                            % #ForTest
+%                             obj.eventLog.Add(ErrorCode.NO_ERROR,...
+%                         "Action: " + num2str([balance_action(3:6)]) ...
+%                         + ". Timer: " + num2str([balance_timer(3:6)]));
+                            
+                            obj.Min_Balance_Time_Value = min_time;  
                             obj.Min_Balance_Time_Board = min_board;
                             obj.Max_Balance_Time_Value = max_time;
                             obj.Max_Balance_Time_Board = max_board;
@@ -1836,7 +1846,9 @@ classdef DC2100A < handle
                         % If voltage matching, let voltage matching algorithm end the balancing
                         if (obj.Max_Balance_Time_Value == 0)...
                                 && (obj.isTimedBalancing == true)
-                            Timed_Balance_Stop(obj, false, board_num);
+%                             Timed_Balance_Stop(obj, board_num, false);
+                            obj.isTimedBalancing = false;
+                            obj.isBalancing = false;
                         end
                     catch MEX
                         Handle_Exception(obj, MEX);
@@ -1890,7 +1902,7 @@ classdef DC2100A < handle
                                         
                                         % Get Charge Current Scale Factor
                                         cal_factor ...
-                                            = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
+                                            = hex2dec("0x" + DC2100A.REMOVE_LEN(obj.buf_in, num_bytes) + "s8");
                                         current = obj.Board_ID_Data(board_num +1).Average_Charge_Current_6Cell ...
                                             + obj.Board_ID_Data(board_num +1).Average_Charge_Current_6Cell ...
                                             * cal_factor / DC2100A.CURRENT_SCALE_FACTOR;
@@ -1899,7 +1911,7 @@ classdef DC2100A < handle
                                         
                                         % Get Discharge Current Scale Factor
                                         cal_factor ...
-                                            = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
+                                            = hex2dec("0x" + DC2100A.REMOVE_LEN(obj.buf_in, num_bytes) + "s8");
                                         current = obj.Board_ID_Data(board_num +1).Average_Discharge_Current_6Cell...
                                             + obj.Board_ID_Data(board_num +1).Average_Discharge_Current_6Cell...
                                             * cal_factor / DC2100A.CURRENT_SCALE_FACTOR;
@@ -2090,7 +2102,7 @@ classdef DC2100A < handle
             %                               configurations on the DC2100B
             %                               Demo manual
             status = ErrorCode.NO_ERROR;
-            if CheckSelectBoard(obj, board_num) == false
+            if CheckBoardValidity(obj, board_num) == false
                 status = ErrorCode.USB_PARSER_UNKNOWN_BOARD;
                 return; 
             end
@@ -2193,6 +2205,16 @@ classdef DC2100A < handle
 %             varargin{:} % Test print any inputs you get
 %             disp("In Error")
 %         end
+
+        function cal_factor = calc_current_scale_factor(obj, desired_current, base_current)
+            try
+                cal_factor = round(DC2100A.CURRENT_SCALE_FACTOR * (desired_current - base_current) / base_current);
+            catch ME
+                obj.Handle_Exception(ME);
+            end
+
+            cal_factor = dec2hex(cal_factor, 2);
+        end
         
     end
     
@@ -2374,8 +2396,8 @@ classdef DC2100A < handle
         end
         
         
-        function validBoard = CheckSelectBoard(obj, board_num)
-            %CheckSelectBoard Checks to see if selected board is valid.
+        function validBoard = CheckBoardValidity(obj, board_num)
+            %CheckBoardValidity Checks to see if selected board is valid.
             %
             %   This functions checks to see if the board selected is 
             %   within the number of boards connected. It also sets the
@@ -2563,12 +2585,12 @@ classdef DC2100A < handle
             if reset == false
                 % Send the command for the selected DC2100A
                 % Note that the whole system will suspend balancing.  The selected board is the only one that will reply with its balancing data for display, however.
-                obj.buf_out.add(DC2100A.USB_PARSER_TIMED_BALANCE_COMMAND + "S" + dec2hex(board_num, 2))
+                obj.buf_out.add(DC2100A.USB_PARSER_TIMED_BALANCE_COMMAND + "S" + dec2hex(board_num, 2));
             else
                 
                 % Send the command for the selected DC2100A
                 % Note that the whole system will end balancing.  The selected board is the only one that will reply with its balancing data for display, however.
-                obj.buf_out.add(DC2100A.USB_PARSER_TIMED_BALANCE_COMMAND + "E" + dec2hex(board_num, 2))
+                obj.buf_out.add(DC2100A.USB_PARSER_TIMED_BALANCE_COMMAND + "E" + dec2hex(board_num, 2));
             end
             
             % #todo - do we need to refresh data here or will the timed call be fine for it?
@@ -2628,7 +2650,8 @@ classdef DC2100A < handle
                 % If OV or UV is present, do nothing
                 popupStr = DC2100A.SET_POPUP_TEXT("Balancing" , ...
                     Get_OVUV_Condition_String(obj, board_num), board_num, false);
-                errordlg(popupStr, "OV or UV Error");
+%                 errordlg(popupStr, "OV or UV Error"); % Errordlg is
+%                 currently too slow in matlab. Can't use.
             end
         end
         
@@ -2866,7 +2889,7 @@ classdef DC2100A < handle
         
         function SetBalanceCurrent(obj, board_num, current)
             
-            if CheckSelectBoard(obj, board_num) == false, return; end
+            if CheckBoardValidity(obj, board_num) == false, return; end
             
             num_currents = length(current);
             if num_currents == DC2100A.MAX_CELLS
@@ -2908,13 +2931,17 @@ classdef DC2100A < handle
             
             obj.buf_out.add(dataString);
             
+            % Flag that balancing is started
+            obj.isTimedBalancing = true;
+            obj.isBalancing = true;
         end
         
         
-        function SetBalanceCharges(obj, board_num, charges)
+        function success = SetBalanceCharges(obj, board_num, charges)
             
-            if CheckSelectBoard(obj, board_num) == false, return; end
-            
+            success = CheckBoardValidity(obj, board_num);
+            if success == false, return; end
+
             num_charges = length(charges);
             if num_charges == DC2100A.MAX_CELLS
                 charges2Send = charges;
@@ -2954,11 +2981,97 @@ classdef DC2100A < handle
             
             dataString = dataString + string(dec2hex(actions2Send, 4));
             dataString = dataString + strjoin(string(dec2hex(charges2Send2, 4)), "");
-            
+
             obj.buf_out.add(dataString);
+            
+            % Flag that balancing is started
+            obj.isTimedBalancing = true;
+            obj.isBalancing = true;
             
         end
 
+        
+        function success = GetDefaultCurrents(obj, board_num)
+            % Check to see if board is valid and connected before using
+            success = CheckBoardValidity(obj, board_num);
+            if success == false, return; end
+            
+            dataString = DC2100A.USB_PARSER_EEPROM_COMMAND + "R";
+            dataString = dataString + string(dec2hex(board_num, 2));
+            item_num = 1; % For getting calibrated current as opposed to capacity (0)
+            dataString = dataString + dec2hex(item_num, 1);
+            obj.buf_out.add(dataString);
+        end
+        
+        
+        function success = WriteDefaultCurrents(obj, board_num, chrgCurrs, dchrgCurrs)
+            % Check to see if board is valid and connected before using
+            success = CheckBoardValidity(obj, board_num);
+            if success == false, return; end
+            
+            % Charge Currents
+            num_currents = length(chrgCurrs);
+            if num_currents == DC2100A.MAX_CELLS
+                ChrgCurr2Send = chrgCurrs;
+
+            elseif num_currents == obj.numCells(board_num +1)
+                ChrgCurr2Send = obj.EEPROM_Data(1, 1).Charge_Currents;
+                ChrgCurr2Send(logical(obj.cellPresent(board_num +1, :)), 1) = chrgCurrs;
+                
+            elseif num_currents < DC2100A.MIN_CELLS || num_currents > DC2100A.MAX_CELLS
+                obj.eventLog.Add(ErrorCode.OUT_OF_BOUNDS,...
+                    "Board: " + num2str(board_num),...
+                    ". The number of charge current values being sent to the balancer" + ...
+                    + " is outside the allowable range of 4 - 12.", ...
+                    num2str(num_currents));
+            end
+            
+            % Discharge Currents
+            num_currents = length(dchrgCurrs);
+            if num_currents == DC2100A.MAX_CELLS
+                DchrgCurr2Send = dchrgCurrs;
+                
+            elseif num_currents == obj.numCells(board_num +1)
+                DchrgCurr2Send = obj.EEPROM_Data(1, 1).Discharge_Currents;
+                DchrgCurr2Send(logical(obj.cellPresent(board_num +1, :)), 1) = dchrgCurrs;
+                
+            elseif num_currents < DC2100A.MIN_CELLS || num_currents > DC2100A.MAX_CELLS
+                obj.eventLog.Add(ErrorCode.OUT_OF_BOUNDS,...
+                    "Board: " + num2str(board_num),...
+                    ". The number of charge current values being sent to the balancer" + ...
+                    + " is outside the allowable range of 4 - 12.", ...
+                    num2str(num_currents));
+            end
+            
+            
+            try
+                dataString = DC2100A.USB_PARSER_EEPROM_COMMAND;
+                if DC2100A.MFG_ENABLED == true
+                    dataString = dataString + "w";
+                else
+                    dataString = dataString + "W";
+                end
+                
+                dataString = dataString + dec2hex(board_num, 2)...
+                    + dec2hex(DC2100A.EEPROM_Item_Type.Current, 1);
+                
+                for cell_num = 0 : DC2100A.MAX_CELLS - 1
+                    dataString = dataString + calc_current_scale_factor(ChrgCurr2Send(cell_num +1),...
+                        DC2100A.Board_ID_Data(board_num +1).Average_Charge_Current_6Cell);
+                    dataString = dataString + calc_current_scale_factor(DchrgCurr2Send(cell_num +1), ...
+                        DC2100A.Board_ID_Data(board_num +1).Average_Discharge_Current_6Cell);
+                end
+                
+                obj.buf_out.add(dataString);
+                
+%                 DC2100A.Cal_Pending = true;
+            catch ME
+                obj.Handle_Exception(ME)
+                
+            end
+            
+        end
+    
         
         function EmergencyStop(obj)
             if isvalid(obj.USBTimer)

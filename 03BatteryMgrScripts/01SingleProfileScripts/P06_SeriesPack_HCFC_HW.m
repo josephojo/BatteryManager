@@ -64,23 +64,33 @@ try
     
     script_initializeDevices; % Run Script to initialize control devices
     verbosity = 2; % Data measurements are not displayed since the results from the MPC will be.
- catch ME
+    balBoard_num = 0; % ID for the main balancer board
+catch ME
     script_handleException;
 end   
+pause(1); % Wait for the EEprom Data to be updated
 
 
 %% Constants
-pause(1); % Wait for the EEprom Data to be updated
-NUMCELLS = length(cellIDs);
-% MAX_BAL_CURR = bal.EEPROM_Data(1, 1).Charge_Currents(logical(bal.cellPresent(1, :))) ...
-%         / DC2100A.MA_PER_A;
-% MIN_BAL_CURR = -1 * bal.EEPROM_Data(1, 1).Charge_Currents(logical(bal.cellPresent(1, :))) ...
-%         / DC2100A.MA_PER_A;
 
-% Since the Current gotten from the EEProm (for 6 cells) is different than what
-% it actually is for 4 cells, use these measured values first
-MAX_BAL_CURR = 5.3;
-MIN_BAL_CURR = -1.5;
+NUMCELLS = length(cellIDs);
+
+try
+    % Write the number of cells to board to prevent OV/UV on unconnected channels
+    bal.Cell_Present_Write(balBoard_num, NUMCELLS); 
+
+    MIN_BAL_CURR = -1 * bal.EEPROM_Data(1, 1).Charge_Currents(logical(bal.cellPresent(1, :))) ...
+            / DC2100A.MA_PER_A;
+    MAX_BAL_CURR = bal.EEPROM_Data(1, 1).Discharge_Currents(logical(bal.cellPresent(1, :))) ...
+            / DC2100A.MA_PER_A;
+
+%     % Since the Current gotten from the EEProm (for 6 cells) is different than what
+%     % it actually is for 4 cells, use these measured values first
+%     MAX_BAL_CURR = 5.3;
+%     MIN_BAL_CURR = -1.5;
+catch ME
+    script_handleException;
+end   
 
 MAX_CELL_CURR = batteryParam.maxCurr(cellIDs);
 MAX_CHRG_VOLT = batteryParam.chargedVolt(cellIDs);
@@ -105,9 +115,8 @@ xV2     = 3;
 xTc     = 4;
 xTs     = 5;
 
-ySOC    = 1;
-yVolt   = 2;
-yTs     = 3;
+yVolt   = 1;
+yTs     = 2;
 
 xIND.SOC    = 1+(xSOC-1)*NUMCELLS:xSOC*NUMCELLS;
 xIND.V1     = 1+(xV1-1)*NUMCELLS:xV1*NUMCELLS;
@@ -115,7 +124,6 @@ xIND.V2     = 1+(xV2-1)*NUMCELLS:xV2*NUMCELLS;
 xIND.Tc     = 1+(xTc-1)*NUMCELLS:xTc*NUMCELLS;
 xIND.Ts     = 1+(xTs-1)*NUMCELLS:xTs*NUMCELLS;
 
-yIND.SOC    = 1+(ySOC-1)*NUMCELLS:ySOC*NUMCELLS;
 yIND.Volt   = 1+(yVolt-1)*NUMCELLS:yVolt*NUMCELLS;
 yIND.Ts     = 1+(yTs-1)*NUMCELLS:yTs*NUMCELLS;
 
@@ -148,18 +156,23 @@ indices.nu = nu;
 sampleTime = 4; % 0.5; % Sample time [s]
 prevTime = 0; prevElapsed = 0;
 
-balBoard_num = 0; % ID for the main balancer board
-
 %% Predictive Model
 try
     % Voltage Model
-    load(dataLocation + '008OCV_AB1_Rev2.mat', 'OCV', 'SOC'); % Lithium plating rate
+    load(dataLocation + '008OCV_AB1_Rev3.mat', 'OCV', 'SOC'); % Lithium plating rate
     
-    C1 = 1187;
-    C2 = 151660;
-    R1 = 0.034249;
-    R2 = 0.1328;
-    Rs = 0.096887;
+    % Previously used parameters
+%     C1 = 33.563;
+%     C2 = 2.0328e+05;
+%     R1 = 0.0015296;
+%     R2 = 0.99465;
+%     Rs = 0.15771;
+    
+    C1 = 146.58;
+    C2 = 8.5354e+05;
+    R1 = 0.001;
+    R2 = 0.001;
+    Rs = 0.16246;
     
     C1 = C1 * ones(1, NUMCELLS);
     C2 = C2 * ones(1, NUMCELLS);
@@ -191,14 +204,16 @@ try
     voltMdl.C1 = C1;
     voltMdl.C2 = C2;
     voltMdl.Rs = Rs(:);
-    voltMdl.OCV = OCV;
-    voltMdl.SOC = SOC;
+
+    resampleSOC = 0:0.0005:1;
+    voltMdl.OCV = interp1(SOC, OCV, resampleSOC, 'pchip', 'extrap'); % OCV;
+    voltMdl.SOC = resampleSOC; % SOC;
     
-    cc = 62.7; % 67;
-    cs = 4.5;
-    rc = 1.94; % 3.8468;
-    re = 0.024218;
-    ru = 15; % 15.987;
+    cc = 59.903;
+    cs = 0.24409;
+    rc = 0.42963;
+    re = 0.098836;
+    ru = 16.419;
     
     % A,B,C,D Matrices  ***
     AT_cont = [-1/(rc*cc), 1/(rc*cc) ; 1/(rc*cs), ((-1/cs)*((1/rc) + (1/ru)))];
@@ -279,7 +294,12 @@ battData.volt           = cells.volt(cellIDs)';
 battData.curr           = cells.curr(cellIDs)'; % zeros(1, NUMCELLS);
 battData.LiPlateRate    = zeros(1, NUMCELLS);
 
-initialSOCs = cells.SOC(cellIDs); % 
+% initialSOCs = cells.SOC(cellIDs); % Using the saved cell SOC from previous run
+% Using OCV vs SOC to initialize the cell SOCs based on their resting voltages
+[~, minIndSOC] = min(  abs( OCV - cells.volt(cellIDs)' )  );
+initialSOCs = SOC(minIndSOC, 1); 
+cells.prevSOC(cellIDs) = initialSOCs;
+prevSOC = mean(initialSOCs);
 
 battData.SOC            = initialSOCs(1:NUMCELLS, 1)';
 battData.Cap            = CAP;
@@ -328,9 +348,9 @@ try
     end
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;
-    mpcObj.MV(NUMCELLS + 1).Min =  -4; % (MAX_CELL_CURR - MAX_BAL_CURR);
+    mpcObj.MV(NUMCELLS + 1).Min =  -1; % (MAX_CELL_CURR - MAX_BAL_CURR);
     mpcObj.MV(NUMCELLS + 1).RateMax =  2; % MAX_CELL_CURR;
-    mpcObj.MV(NUMCELLS + 1).RateMin = -2; % -6
+    mpcObj.MV(NUMCELLS + 1).RateMin = -1; % -6
     
     % Equality Limits for state/output vars for each cell
     for i=1:NUMCELLS
@@ -348,8 +368,9 @@ try
 %         mpcObj.OV(i + (yVolt-1) * NUMCELLS).Min =  MIN_DCHRG_VOLT(i);
 %         mpcObj.OV(i + (yVolt-1) * NUMCELLS).ScaleFactor =  MAX_CHRG_VOLT(i);
     end
+    
     bal.Set_OVUV_Threshold(MAX_CELL_VOLT(1, 1), MIN_CELL_VOLT(1, 1));
-
+    wait(1);
     
     % Add dynamic model for nonlinear MPC
     mpcObj.Model.StateFcn = @(x, u, p1, p2, p3, p4)...
@@ -359,8 +380,8 @@ try
     
     mpcObj.Model.OutputFcn = @(x,u, p1, p2, p3, p4) ...
         P06_OutputFcn_HW(x, u, p1, p2, p3, p4); % SOC, Volt, Ts
-%     mpcObj.Jacobian.OutputFcn = @(x,u,p1, p2, p3, p4) ... 
-%         myOutputJacobian(x, u, p1, p2, p3, p4);
+    mpcObj.Jacobian.OutputFcn = @(x,u,p1, p2, p3, p4) ... 
+        myOutputJacobian(x, u, p1, p2, p3, p4);
     
     mpcObj.Optimization.CustomCostFcn = @(X,U,e,data, p1, p2, p3, p4)...
         myCostFunction(X, U, e, data, p1, p2, p3, p4);
@@ -369,8 +390,8 @@ try
     
     mpcObj.Optimization.CustomIneqConFcn = @(X,U,e,data, p1, p2, p3, p4)...
         myIneqConFunction(X,U,e,data, p1, p2, p3, p4);
-    % mpcObj.Jacobian.CustomIneqConFcn = @(x,u,e,data, p1, p2, p3, p4) ...
-    %     myIneqConJacobian(x, u,e,data, p1, p2, p3, p4);
+    mpcObj.Jacobian.CustomIneqConFcn = @(x,u,e,data, p1, p2, p3, p4) ...
+        myIneqConJacobian(x, u,e,data, p1, p2, p3, p4);
     
     mpcObj.Optimization.ReplaceStandardCost = true;
     
@@ -384,8 +405,8 @@ try
     
     
     % SOC tracking, LPR tracking, and temp rise rate cuz refs have to equal number of outputs
-    references = [repmat(TARGET_SOC, 1, NUMCELLS), repmat(LPR_Target, 1, NUMCELLS),...
-         repmat(3, 1, NUMCELLS)];
+    references = [repmat(TARGET_SOC, 1, NUMCELLS), repmat(LPR_Target, 1, NUMCELLS)]; %,...
+%          repmat(3, 1, NUMCELLS)];
     
     u0 = [battData.balCurr, battData.optPSUCurr];
     
@@ -396,9 +417,9 @@ end
 
 %% Extended Kalman Filter Configuration
 ekf = extendedKalmanFilter(@P06_BattStateFcn_HW, @P06_OutputFcn_HW, xk);
-zCov = repmat([0.02, 0.08, 0.01], NUMCELLS, 1); % Measurement Noise covariance (assuming no cross correlation)
+zCov = repmat([0.08, 0.01], NUMCELLS, 1); % Measurement Noise covariance (assuming no cross correlation) % [0.02, 0.08, 0.01] 
 ekf.MeasurementNoise = diag(zCov(:));
-ekf.ProcessNoise = 0.2;
+ekf.ProcessNoise = 0.07;
 
 %% MPC Simulation Loop
 
@@ -426,8 +447,8 @@ try
         
         idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MAX_CELL_CURR));
         SOC_Target = xk(xIND.SOC) + (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC - xk(xIND.SOC, 1));
-        references = [SOC_Target(:)', repmat(LPR_Target, 1, NUMCELLS),...
-             repmat(3, 1, NUMCELLS)];
+        references = [SOC_Target(:)', repmat(LPR_Target, 1, NUMCELLS)]; %,...
+%              repmat(3, 1, NUMCELLS)];
 
 %         tt = tic;
         % Run the MPC controller
@@ -435,9 +456,8 @@ try
             references,[], options); % (:,idx-1)
 %         toc(tt)
 
-        mdl_X = P06_BattStateFcn(xk, u, p1, p2, p3, p4);
+        mdl_X = P06_BattStateFcn_HW(xk, u, p1, p2, p3, p4);
         mdl_Y = P06_OutputFcn_HW(mdl_X, u, p1, p2, p3, p4)';
-%         disp(newline); disp(mdl_Y(yIND.Volt))
         
         optCurr = u; % u<0 == Charging, u>0 == discharging
         cost = mpcinfo.Cost;
@@ -452,7 +472,7 @@ try
         % Set power supply current
         curr = abs(optPSUCurr); % PSU Current. Using "curr" since script in nect line uses "curr"
         script_charge;
-        
+
         bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = balCurr;
         % send balance charges to balancer
         bal.SetBalanceCharges(balBoard_num, balCurr*sampleTime); % Send charges in As
@@ -483,10 +503,11 @@ try
         battData.Ts             = [battData.Ts          ; temp(:)']; ind = ind + 1;
         battData.LiPlateRate    = [battData.LiPlateRate ; LPR(:)']; ind = ind + 1;
         battData.Cost           = [battData.Cost ; cost];
+        battData.Iters          = [battData.Iters ; iters];
         battData.ExitFlag       = [battData.ExitFlag ; mpcinfo.ExitFlag];
         
-        % Get Measurements to update states (SOC, Volt, Ts)
-        y = [battData.SOC(end, :), battData.volt(end, :), battData.Ts(end, :)];
+        % Get Measurements to update states (Volt, Ts)
+        y = [battData.volt(end, :), battData.Ts(end, :)];
         
         % Kalman filter plant measurements to get the hidden model states
         % Predict Step
@@ -501,7 +522,7 @@ try
         
         tempStr = ""; voltStr = ""; currStr = ""; socStr = ""; psuStr = "";  balStr = "";
         MPCStr = ""; LPRStr = "";
-        MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\n", mpcinfo.ExitFlag, cost);
+        MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\t\tIters = %d\n", mpcinfo.ExitFlag, cost, iters);
         
         for i = 1:NUMCELLS-1
             tempStr = tempStr + sprintf("Ts%d = %.2f ºC\t\t" , i, battData.Ts(end,i));
@@ -633,9 +654,12 @@ socDev = devMat * chrgSOC';
 % %%%%%%%%%%%%%%%%%%%%%%%  Li Plate Rate   %%%%%%%%%%%%%%%%%%%%%%%%%%
     LPRind = curr < 0;
     interpCurr = curr .* (LPRind);
-    LiPlateRate = qinterp2(-lprMdl.Curr, lprMdl.SOC, lprMdl.LPR,...
+%     LiPlateRate = qinterp2(-lprMdl.Curr, lprMdl.SOC, lprMdl.LPR,...
+%                     interpCurr, X(2:p+1, xIND.SOC));
+    
+    LiPlateRate = lookup2D(-lprMdl.Curr, lprMdl.SOC, lprMdl.LPR,...
                     interpCurr, X(2:p+1, xIND.SOC));
-%     LiPlateRate = reshape(LiPlateRate, size(curr));
+    LiPlateRate = reshape(LiPlateRate, size(curr));
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Objective Function Weights (0, 1, 5, 20 etc))
@@ -823,7 +847,7 @@ dv = 1e-6;
 xa = abs(x0);
 xa(xa < 1) = 1;  % Prevents perturbation from approaching eps.
 
-for ix = horizonInd 
+for ix = 1:length(horizonInd) 
     % Avoid using ix=1 ("how does the ineq change wrt to the previous state changing")
     % since it doesn't change the ineqs
     if ix==1, continue; end 
@@ -948,7 +972,7 @@ end
 ua = abs(u0);
 ua(ua < 1) = 1;
 
-i = 1;
+i = horizonInd(1);
 for j = 1:nmv
     k = imv(j);
     du = dv*ua(k);
@@ -959,14 +983,25 @@ for j = 1:nmv
     Jmv(:,j,i) = df;
 end
 
-matx = Jmv( 1+(horizonInd(1)-1)*NUMCELLS : horizonInd(1)*NUMCELLS , :, i );
-for x = 2:nmv-1
-    Jmv( 1+(horizonInd(x)-1)*NUMCELLS : horizonInd(x)*NUMCELLS , :, x ) = matx;
+%{
+% matx = Jmv( 1+(horizonInd(1)-1)*NUMCELLS : horizonInd(1)*NUMCELLS , :, i );
+% for x = 2:nmv-1
+%     Jmv( 1+(horizonInd(x)-1)*NUMCELLS : horizonInd(x)*NUMCELLS , :, x ) = matx;
+% end
+% 
+% Jmv( 1+(horizonInd(p)-1)*NUMCELLS : horizonInd(p+1)*NUMCELLS , :, p ) = [matx; matx];
+%}
+
+matx = Jmv( 1 : NUMCELLS , :, i );
+for x = 2:length(horizonInd)-2
+%     Jmv( 1+(horizonInd(x)-1)*NUMCELLS : horizonInd(x)*NUMCELLS , :, x ) = matx;
+    i = i+1;
+    Jmv( 1+(x-1)*NUMCELLS : x*NUMCELLS , :, i ) = matx;
 end
 
-Jmv( 1+(horizonInd(p)-1)*NUMCELLS : horizonInd(p+1)*NUMCELLS , :, p ) = [matx; matx];
+Jmv( 1+((length(horizonInd)-1)-1)*NUMCELLS : length(horizonInd)*NUMCELLS , :, p ) = [matx; matx];
 
-
+%{
 % for j = 1:nmv
 %     k = imv(j);
 %     du = dv*ua(k);
@@ -978,7 +1013,7 @@ Jmv( 1+(horizonInd(p)-1)*NUMCELLS : horizonInd(p+1)*NUMCELLS , :, p ) = [matx; m
 %     df = (f - f0)/du;
 %     Jmv(:,j,p) = df;
 % end
-
+%}
 
 
 %{
@@ -1176,8 +1211,8 @@ Jx(: , xIND.Ts) = df_ts;
 % Jx(xIND.Tc, xIND.Tc) = diag(df(xIND.Tc, 1));
 % Jx(xIND.Ts, xIND.Tc) = diag(df(xIND.Ts, 1));
 
-Jx(xIND.Tc, xIND.Tc) = 0.973900266935093 * eye(NUMCELLS);
-Jx(xIND.Ts, xIND.Tc) = 0.352264366085013 * eye(NUMCELLS);
+Jx(xIND.Tc, xIND.Tc) = 0.992219589944262 * eye(NUMCELLS);
+Jx(xIND.Tc, xIND.Ts) = 0.003940352927910 * eye(NUMCELLS);
 
 % % TS
 % dx = dv*xa(xIND.Ts);
@@ -1191,8 +1226,8 @@ Jx(xIND.Ts, xIND.Tc) = 0.352264366085013 * eye(NUMCELLS);
 % Jx(xIND.Tc, xIND.Ts) = diag(df(xIND.Tc, 1));
 % Jx(xIND.Ts, xIND.Ts) = diag(df(xIND.Ts, 1));
 
-Jx(xIND.Ts, xIND.Tc) = 0.025282131510418 * eye(NUMCELLS);
-Jx(xIND.Ts, xIND.Ts) = 0.601358507776876 * eye(NUMCELLS);
+Jx(xIND.Ts, xIND.Tc) = 0.967016120252270 * eye(NUMCELLS);
+Jx(xIND.Ts, xIND.Ts) = 0.003840263642064 * eye(NUMCELLS);
 
 
 %% Get Jmv - How do the states change when each manipulated variable is changed?
@@ -1254,7 +1289,7 @@ nx = indices.nx; % Number of states
 ny = indices.ny; % Number of states
 C = zeros(ny, nx);
 
-C(yIND.SOC, xIND.SOC) = eye(NUMCELLS);
+% C(yIND.SOC, xIND.SOC) = eye(NUMCELLS);
 C(yIND.Volt, xIND.V1) = -1* eye(NUMCELLS);
 C(yIND.Volt, xIND.V2) = -1* eye(NUMCELLS);
 C(yIND.Ts, xIND.Ts) = eye(NUMCELLS);

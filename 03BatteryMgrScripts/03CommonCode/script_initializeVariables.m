@@ -66,7 +66,7 @@ end
 % Number of cells
 numCells = length(cellIDs);
 
-%Load PrevSOC
+%Load Battery Parameters
 load(dataLocation + "007BatteryParam.mat", 'batteryParam');
 
 % Let the user enter the parameter for the cellIDs specified if they don't
@@ -297,10 +297,10 @@ end
 chargeReq = 0; % Charge Request - true/1 = Charging, false/0 = discharging
 chargeVolt = highVoltLimit + 0.003; % Due to the small resistance in the wiring
 
-% batt is regarded as the battery stack series or parallel
+% batt.pack is regarded as the battery stack series or parallel
 % cell is the individual cells
 
-prevSOC = mean(battProp.soc(cellIDs));
+prevSOC = mean(battProp.soc(cellIDs)); % Previous SOC for the Pack
 
 % Transformation Matrix for calculating SOC in an Active Balancing process 
 % [1]	L. McCurlie, M. Preindl, P. Malysz, and A. Emadi, Eds., 

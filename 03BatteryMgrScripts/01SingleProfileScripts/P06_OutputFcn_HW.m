@@ -43,7 +43,7 @@ Ts = x(xIND.Ts, 1);
 T_avg = (Tc + Ts)/2;
 
 % Pass the unchanged states through
-y(yIND.SOC, 1) = SOC;
+% y(yIND.SOC, 1) = SOC;
 y(yIND.Ts, 1) = Ts;
 
 balCurr = u(1:NUMCELLS, 1);
@@ -64,7 +64,8 @@ curr = psuCurr + balActual(:); % Actual Current in each cell
 % OCV = reshape(Z.OCV, size(SOC));
 % rs = reshape(Z.Rs, size(SOC));
 
-OCV = interp1qr(predMdl.Volt.SOC, predMdl.Volt.OCV, SOC(:));
+% OCV = interp1qr(predMdl.Volt.SOC, predMdl.Volt.OCV, SOC(:));
+OCV = lookup1D(predMdl.Volt.SOC, predMdl.Volt.OCV, SOC(:));
 Vt = OCV(:) - V1 - V2 -(curr .* predMdl.Volt.Rs); 
 
 y(yIND.Volt, 1) = Vt(:);
