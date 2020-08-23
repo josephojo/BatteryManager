@@ -65,10 +65,10 @@ try
     script_initializeDevices; % Run Script to initialize control devices
     verbosity = 2; % Data measurements are not displayed since the results from the MPC will be.
     balBoard_num = 0; % ID for the main balancer board
+    wait(2); % Wait for the EEprom Data to be updated
 catch ME
     script_handleException;
 end   
-pause(1); % Wait for the EEprom Data to be updated
 
 
 %% Constants
@@ -138,9 +138,6 @@ LPR_Target = 50;
 chrgEff = 0.774; 
 dischrgEff = 0.651; 
 
-Tf = thermoData(1); % Ambient Temp
-
-
 numStatesPerCell = length(fields(xIND));
 numOutputsPerCell = length(fields(yIND));
 
@@ -154,6 +151,7 @@ indices.ny = ny;
 indices.nu = nu;
 
 sampleTime = 4; % 0.5; % Sample time [s]
+readPeriod = 0.25; % How often to read from plant
 prevTime = 0; prevElapsed = 0;
 
 %% Predictive Model
@@ -230,7 +228,8 @@ try
     A_Dis = expm(tempMdl.A_cont * sampleTime);
     tempMdl.A = A_Dis;
     tempMdl.B = tempMdl.A_cont\(A_Dis - eye(size(A_Dis,1))) * tempMdl.B_cont;
-    tempMdl.Tf = Tf; % Ambient Temp
+%     tempMdl.Tf = Tf; % Ambient Temp % Moved to next section since
+%     measurement is needed
     
     % SOC Deviation Matrix
     L2 = [zeros(NUMCELLS-1, 1), (-1 * eye(NUMCELLS-1))];
@@ -284,6 +283,11 @@ try
 catch ME
     script_handleException;
 end
+
+Tf = thermoData(1); % Ambient Temp
+tempMdl.Tf = Tf; % Ambient Temp
+predMdl.Temp = tempMdl;
+
 
 battData = struct;
 battData.time           = 0;
@@ -403,46 +407,77 @@ try
     
     mpcObj.Optimization.SolverOptions.MaxIterations = 150; % 20; %
     
+    mpcinfo = [];
     
     % SOC tracking, LPR tracking, and temp rise rate cuz refs have to equal number of outputs
     references = [repmat(TARGET_SOC, 1, NUMCELLS), repmat(LPR_Target, 1, NUMCELLS)]; %,...
 %          repmat(3, 1, NUMCELLS)];
     
     u0 = [battData.balCurr, battData.optPSUCurr];
-    
+    combCurr = battData.curr(:);
+
     validateFcns(mpcObj, xk, u0, [], {p1, p2, p3, p4}, references);
 catch ME
     script_handleException;
 end
 
+%% Parallel Pool
+pool = gcp('nocreate');
+% Start Parallel Pool if it doesn't exist
+if isempty(pool) 
+    pool = parpool(1);
+end
+
 %% Extended Kalman Filter Configuration
 ekf = extendedKalmanFilter(@P06_BattStateFcn_HW, @P06_OutputFcn_HW, xk);
-zCov = repmat([0.08, 0.01], NUMCELLS, 1); % Measurement Noise covariance (assuming no cross correlation) % [0.02, 0.08, 0.01] 
+%{
+% Get observation noise covariance matrix
+dt = readPeriod;
+iters = 500;
+plantObvs = cell(iters, 1);
+u = [0 0 0 0 0]';  u_bal = u(1:NUMCELLS); u_psu = u(end);
+t = tic;
+for i=1:iters
+    script_queryData;
+    script_failSafes; %Run FailSafe Checks
+    script_checkGUICmd; % Check to see if there are any commands from GUI
+    % if limits are reached, break loop
+    if errorCode == 1 || strcmpi(testStatus, "stop")
+        script_idle;
+    end
+    
+    y_Ts = thermoData(2:end);
+    plantObvs{i} = [ reshape(cells.volt(cellIDs), 1, []) ;  y_Ts(:)' ];
+    wait(0.25);
+end
+toc(t)
+
+plantObvs_V_Ts = cell2mat(cellfun(@(X)[X(1, :), X(2, :)], plantObvs, 'UniformOutput', false));
+obsvCov = cov(plantObvs_V_Ts - mean(plantObvs_V_Ts, 1));
+zCov = diag(obsvCov);
+%}
+
+zCov = [4.24849699398227e-09;3.08216432866192e-09;4.52248496993420e-09;1.86977955912091e-09;0.000118797595190384;0.00142701402805615;0;0.00124933867735475];
+% zCov = repmat([0.08, 0.01], NUMCELLS, 1); % Measurement Noise covariance (assuming no cross correlation) % [0.02, 0.08, 0.01] 
 ekf.MeasurementNoise = diag(zCov(:));
 ekf.ProcessNoise = 0.07;
 
 %% MPC Simulation Loop
 
 mpcTimer = tic;
+mpcRunning = false;
+poolState = 'finished';
 
 r = rateControl(1/sampleTime);
 u = zeros(NUMCELLS + 1,1);
 options = nlmpcmoveopt;
 options.Parameters = {p1, p2, p3, p4};
-try
-%     dataQueryTimer = timer;
-%     
-%     % Start Measurement Timer
-%     dataQueryTimer.ExecutionMode = 'fixedSpacing';
-%     dataQueryTimer.Period = readPeriod;
-%     dataQueryTimer.StopFcn = @dataQueryTimerStopped;
-%     dataQueryTimer.TimerFcn = @dataQueryTimerFcn;
-%     dataQueryTimer.ErrorFcn = {@bal.Handle_Exception, []};
-%     % Start COMM out timer
-%     start(dataQueryTimer);
-        
-    sTime = [];
+try     
+    sTime = [];readTime = [];
     reset(r); 
+    tElapsed_plant = 0; prevStateTime = 0; prevMPCTime = 0;
+    
+    %{
     while max(xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) <= TARGET_SOC)
         
         idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MAX_CELL_CURR));
@@ -574,7 +609,176 @@ try
         prevElapsed = tElapsed_MPC;
         
     end
-    disp("Test Completed After: " + tElapsed_MPC + " seconds.")
+    %}
+    
+    while max(xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) <= TARGET_SOC)
+        
+        tElapsed_MPC = toc(testTimer);
+        if ( toc(testTimer)- prevMPCTime ) >= sampleTime && strcmpi(poolState, "finished")
+            actual_STime = tElapsed_MPC - prevMPCTime;
+            prevMPCTime = tElapsed_MPC;
+
+            idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MAX_CELL_CURR));
+            SOC_Target = xk(xIND.SOC) + (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC - xk(xIND.SOC, 1));
+            references = [SOC_Target(:)', repmat(LPR_Target, 1, NUMCELLS)]; 
+
+            %          t = tic;
+
+            % Run the MPC controller in parallel
+            mpcFeval = parfeval(pool,@nlmpcmove, 3, mpcObj,  xk, u,...
+                references,[], options);
+            mpcRunning = true;
+
+            %         toc(t)
+        end
+       
+        if exist('mpcFeval', 'var')
+            poolState = mpcFeval.State;
+            if strcmpi(poolState, "finished") && mpcRunning == true
+                [u,~,mpcinfo] = fetchOutputs(mpcFeval,'UniformOutput',false);
+                mpcRunning = false;
+                u = u{:};
+                mpcinfo = mpcinfo{:};
+                
+                % Set power supply current
+                curr = abs(u(end)); % PSU Current. Using "curr" since script in nect line uses "curr"
+                script_charge;
+                
+                bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = u(1:NUMCELLS);
+                % send balance charges to balancer
+                bal.SetBalanceCharges(balBoard_num, u(1:NUMCELLS)*sampleTime); % Send charges in As
+                
+                % Collect Measurements
+                wait(0.1); % Wait for 100ms for the pack to respond to the applied currents
+                script_queryData;
+                script_failSafes; %Run FailSafe Checks
+                script_checkGUICmd; % Check to see if there are any commands from GUI
+                % if limits are reached, break loop
+                if errorCode == 1 || strcmpi(testStatus, "stop")
+                    script_idle;
+                end
+                
+                y_Ts = thermoData(2:end);
+                y = [ reshape(cells.volt(cellIDs), 1, []),  y_Ts(:)' ];
+                
+                % Kalman filter plant measurements to get the hidden model states
+                % Predict Step
+                [PredictedState,PredictedStateCovariance] = predict(ekf, u, options.Parameters{:});
+                
+                % Correct Step
+                [CorrectedState,CorrectedStateCovariance] = correct(ekf, y(:), u, options.Parameters{:});
+                
+                xk = CorrectedState';
+                xk = xk(:);
+            end
+        end
+        
+
+        
+        if (( toc(testTimer)- prevStateTime ) >= readPeriod ) && ~isempty(mpcinfo)
+            tElapsed_plant = toc(testTimer);
+            sTime = [sTime; actual_STime];
+            dt = tElapsed_plant - prevStateTime; prevStateTime = tElapsed_plant;
+            
+            mdl_X = P06_BattStateFcn_HW(xk, u, p1, p2, p3, p4);
+            mdl_Y = P06_OutputFcn_HW(mdl_X, u, p1, p2, p3, p4)';
+            
+            optCurr = u; % u<0 == Charging, u>0 == discharging
+            cost = mpcinfo.Cost;
+            iters = mpcinfo.Iterations;
+            
+            % Balancer and PSU Current
+            balCurr = optCurr(1:NUMCELLS);
+            battData.balCurr = [battData.balCurr; balCurr'];
+            optPSUCurr = optCurr(end);
+            battData.optPSUCurr  = [battData.optPSUCurr ; optPSUCurr];
+            
+            % Collect Measurements
+            script_queryData;
+            script_failSafes; %Run FailSafe Checks
+            script_checkGUICmd; % Check to see if there are any commands from GUI
+            % if limits are reached, break loop
+            if errorCode == 1 || strcmpi(testStatus, "stop")
+                script_idle;
+            end
+            
+            % Combine the PSU and BalCurr based on the balancer transformation
+            % matrix
+            combCurr = combineCurrents(optPSUCurr, balCurr, currMdl);
+            
+            temp = thermoData(2:end);
+            LPR = lookup2D(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
+                reshape(cells.curr(cellIDs), [], 1), reshape(cells.SOC(cellIDs), [], 1) );
+            
+            battData.time           = [battData.time        ; tElapsed_plant   ]; ind = 1;
+            battData.volt           = [battData.volt        ; reshape(cells.volt(cellIDs), 1, [])]; ind = ind + 1;
+            battData.curr           = [battData.curr        ; reshape(cells.curr(cellIDs), 1, [])]; ind = ind + 1;
+            battData.SOC            = [battData.SOC         ; reshape(cells.SOC(cellIDs), 1, [])]; ind = ind + 1;
+            battData.Ts             = [battData.Ts          ; temp(:)']; ind = ind + 1;
+            battData.LiPlateRate    = [battData.LiPlateRate ; LPR(:)']; ind = ind + 1;
+            battData.Cost           = [battData.Cost ; cost];
+            battData.Iters          = [battData.Iters ; iters];
+            battData.ExitFlag       = [battData.ExitFlag ; mpcinfo.ExitFlag];
+            
+            
+            tempStr = ""; voltStr = ""; currStr = ""; socStr = ""; psuStr = "";  balStr = "";
+            MPCStr = ""; LPRStr = "";
+            MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\t\tIters = %d\n", mpcinfo.ExitFlag, cost, iters);
+            
+            for i = 1:NUMCELLS-1
+                tempStr = tempStr + sprintf("Ts%d = %.2f ºC\t\t" , i, battData.Ts(end,i));
+                voltStr = voltStr + sprintf("Volt %d = %.4f V\t", i, battData.volt(end,i));
+                LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\t", i, battData.LiPlateRate(end,i));
+                balStr = balStr + sprintf("Bal %d = %.4f A\t", i, battData.balCurr(end,i));
+                currStr = currStr + sprintf("Curr %d = %.4f\t", i, battData.curr(end,i));
+                socStr = socStr + sprintf("SOC %d = %.4f\t\t", i, battData.SOC(end, i));
+            end
+            
+            for i = i+1:NUMCELLS
+                tempStr = tempStr + sprintf("Ts %d = %.2f ºC\n" , i, battData.Ts(end,i));
+                voltStr = voltStr + sprintf("Volt %d = %.4f V\n", i, battData.volt(end,i));
+                LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\n", i, battData.LiPlateRate(end,i));
+                balStr = balStr + sprintf("Bal %d = %.4f A\n", i, battData.balCurr(end,i));
+                currStr = currStr + sprintf("Curr %d = %.4f\n", i, battData.curr(end,i));
+                socStr = socStr + sprintf("SOC %d = %.4f\n", i, battData.SOC(end, i));
+            end
+            psuStr = psuStr + sprintf("PSUCurr = %.4f A", optPSUCurr(1));
+            
+            disp(newline)
+            disp(num2str(tElapsed_plant,'%.2f') + " seconds");
+            readTime = [readTime; tElapsed_plant - prevElapsed];
+            timingStr = sprintf("ReadTime: %.3f Secs \tSTime: %.3f Secs", readTime(end, 1), sTime(end, 1));
+            
+            fprintf(timingStr + newline);
+
+            fprintf(tempStr + newline);
+            fprintf("\t"); disp(mdl_Y(yIND.Volt))
+            fprintf(voltStr + newline);
+            fprintf(LPRStr + newline);
+            fprintf(psuStr + newline);
+            fprintf(balStr + newline);
+            fprintf(MPCStr + newline);
+            fprintf(currStr + newline);
+            fprintf(socStr);
+            
+        end
+        % curr > 0 = Discharging
+        if (max(combCurr > 0 & xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) <= 0.01))...
+                || (max(combCurr < 0 & xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) >= 0.99))
+            disp("Test Overcharged after: " + tElapsed_plant + " seconds.")
+            break;
+        elseif errorCode == 1
+            disp("An error or Stop test request has occured." + newline...
+                + "Test Stopped After: " + tElapsed_plant + " seconds.")
+            script_resetDevices;
+            break;
+        end
+        
+        prevElapsed = tElapsed_plant;
+        
+    end
+    
+    disp("Test Completed After: " + tElapsed_plant + " seconds.")
 
 catch ME
 %     dataQueryTimerStopped();

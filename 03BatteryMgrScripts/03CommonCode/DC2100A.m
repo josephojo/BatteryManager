@@ -849,7 +849,7 @@ classdef DC2100A < handle
                     string2 = char(DC2100A.DC2100A_IDSTRING);
                     string2 = string2(1:...
                         strlength(DC2100A.DC2100A_MODEL_NUM_DEFAULT));
-                    if (strcmp1(string1, string2))
+                    if (strcmpi(string1, string2))
                         obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_IDSTRING,...
                             "Unknown ID String received by MCU.");
                         status = ErrorCode.USB_PARSER_UNKNOWN_IDSTRING;
@@ -1739,21 +1739,23 @@ classdef DC2100A < handle
                                         index = index + num_bytes;
                                     end
                                 end
+                                
+                                % *** If we got here, all of the data conversion was successful!
+                                for ic_num = 0 : ics_read - 1
+                                    obj.LTC3300s(board_num +1, ic_num +1)...
+                                        .Set_Read_Register(command, register(ic_num +1));
+                                    if (obj.LTC3300s(board_num +1, ic_num +1).Get_Error == true)
+                                        % Output LTC3300 Error bits to log file
+                                        obj.eventLog.Add(ErrorCode.LTC3300_Status, ...
+                                            "Board: " + num2str(board_num) + ", IC: "...
+                                            + num2str(ic_num) + ", Register " ...
+                                            + dec2hex(register(ic_num), 4)); % #debugString=buffer
+                                    end
+                                end
                             end
                         end
                         
-                        % *** If we got here, all of the data conversion was successful!
-                        for ic_num = 0 : ics_read - 1
-                            obj.LTC3300s(board_num +1, ic_num +1)...
-                                .Set_Read_Register(command, register(ic_num +1));
-                            if (obj.LTC3300s(board_num +1, ic_num +1).Get_Error == true)
-                                % Output LTC3300 Error bits to log file
-                                obj.eventLog.Add(ErrorCode.LTC3300_Status, ...
-                                    "Board: " + num2str(board_num) + ", IC: "...
-                                    + num2str(ic_num) + ", Register " ...
-                                    + dec2hex(register(ic_num), 4)); % #debugString=buffer
-                            end
-                        end
+                       
                     catch MEX
                         Handle_Exception(obj, MEX);
                         status = ErrorCode.USB_PARSER_UNSUCCESSFUL;
