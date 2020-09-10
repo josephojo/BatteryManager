@@ -99,7 +99,7 @@ elseif ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMe
         cells.volt(cellIDs) = packVolt; % Assign stack voltage to individual voltage
     end
 elseif ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDev, "balancer")
-    cells.volt(cellIDs) = bal.Voltages(1, logical(bal.cellPresent(1, :)));
+    cells.volt(cellIDs) = bal.Voltages(1, logical(bal.cellPresent(1, :)))';
     packVolt = bal.Board_Summary_Data.Volt_Sum;
 end
 
@@ -222,7 +222,8 @@ if ismember("SOC", testSettings.data2Record)
 end
 
 data = [packVolt, packCurr, packSOC, AhCap,...
-            cells.curr(cellIDs)', cells.SOC(cellIDs)',cells.AhCap(cellIDs)',...
+            cells.volt(cellIDs)', cells.curr(cellIDs)',...
+            cells.SOC(cellIDs)',cells.AhCap(cellIDs)',...
             tempChnls(:)', thermoData(:)'];
 
 

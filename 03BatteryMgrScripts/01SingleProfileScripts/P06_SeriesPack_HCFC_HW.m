@@ -14,6 +14,8 @@
 % [mainPath, filename, ~] = fileparts(currFilePath);
 % cd(mainPath)
 
+% clearvars -except bal eventLog; clc
+
 %% Initialize Variables and Devices
 try
     if ~exist('cellIDs', 'var') || isempty(cellIDs)
@@ -65,6 +67,7 @@ try
     script_initializeDevices; % Run Script to initialize control devices
     verbosity = 2; % Data measurements are not displayed since the results from the MPC will be.
     balBoard_num = 0; % ID for the main balancer board
+    
     wait(2); % Wait for the EEprom Data to be updated
 catch ME
     script_handleException;
@@ -75,19 +78,33 @@ end
 
 NUMCELLS = length(cellIDs);
 
+% % Write the number of cells to board to prevent OV/UV on unconnected channels
+% bal.Cell_Present_Write(balBoard_num, NUMCELLS); 
+
+sampleTime = 5; % 0.5; % Sample time [s]
+readPeriod = 0.25; % How often to read from plant
+prevTime = 0; prevElapsed = 0;
+
+USE_PARALLEL = true;
+% USE_PARALLEL = false;
+
+% Info from MCU (Low Level Controller)
+VPLM_ON_PERIOD = 1;
+VPLM_OFF_PERIOD = 3;
+BalancerTaskRate = 15.625; % in ms. Task rate
+
+
 try
-    % Write the number of cells to board to prevent OV/UV on unconnected channels
-    bal.Cell_Present_Write(balBoard_num, NUMCELLS); 
+%     VPLM_Curr_Ratio = VPLM_ON_PERIOD/(VPLM_ON_PERIOD+VPLM_OFF_PERIOD);% (sampleTime*DC2100A.MS_PER_SEC/BalancerTaskRate);
+%     
+%     MIN_BAL_CURR = -1* VPLM_Curr_Ratio * bal.EEPROM_Data(1, 1).Charge_Currents(logical(bal.cellPresent(1, :))) ...
+%             / DC2100A.MA_PER_A;
+%     MAX_BAL_CURR = VPLM_Curr_Ratio * bal.EEPROM_Data(1, 1).Discharge_Currents(logical(bal.cellPresent(1, :))) ...
+%             / DC2100A.MA_PER_A;
 
-    MIN_BAL_CURR = -1 * bal.EEPROM_Data(1, 1).Charge_Currents(logical(bal.cellPresent(1, :))) ...
-            / DC2100A.MA_PER_A;
-    MAX_BAL_CURR = bal.EEPROM_Data(1, 1).Discharge_Currents(logical(bal.cellPresent(1, :))) ...
-            / DC2100A.MA_PER_A;
+    MIN_BAL_CURR = [-1.165, -1.271, -1.244, -1.179]';
+    MAX_BAL_CURR = [2.000, 1.878, 1.883, 1.866]';
 
-%     % Since the Current gotten from the EEProm (for 6 cells) is different than what
-%     % it actually is for 4 cells, use these measured values first
-%     MAX_BAL_CURR = 5.3;
-%     MIN_BAL_CURR = -1.5;
 catch ME
     script_handleException;
 end   
@@ -97,8 +114,11 @@ MAX_CHRG_VOLT = batteryParam.chargedVolt(cellIDs);
 MIN_DCHRG_VOLT = batteryParam.dischargedVolt(cellIDs);
 MAX_CELL_VOLT = batteryParam.maxVolt(cellIDs);
 MIN_CELL_VOLT = batteryParam.minVolt(cellIDs);
-CAP = batteryParam.capacity(cellIDs);  % battery capacity
+MAX_BAL_SOC = 0.80; % Maximum SOC that that balancers will be active and the mpc will optimize for balance currents
+MIN_BAL_SOC = 0.25; % Minimum SOC that that balancers will be active and the mpc will optimize for balance currents
 
+% battery capacity
+CAP = batteryParam.capacity(cellIDs);  % battery capacity
 
 cellData.NUMCELLS = NUMCELLS;
 cellData.MAX_BAL_CURR = MAX_BAL_CURR;
@@ -106,6 +126,8 @@ cellData.MIN_BAL_CURR = MIN_BAL_CURR;
 cellData.MAX_CELL_CURR = MAX_CELL_CURR;
 cellData.MAX_CHRG_VOLT = MAX_CHRG_VOLT;
 cellData.MIN_DCHRG_VOLT = MIN_DCHRG_VOLT;
+cellData.MAX_BAL_SOC = MAX_BAL_SOC;
+cellData.MIN_BAL_SOC = MIN_BAL_SOC;
 cellData.CAP = CAP;
 
 
@@ -114,24 +136,28 @@ xV1     = 2;
 xV2     = 3;
 xTc     = 4;
 xTs     = 5;
+xCurr   = 6;
 
 yVolt   = 1;
 yTs     = 2;
+yLPR    = 3;
 
 xIND.SOC    = 1+(xSOC-1)*NUMCELLS:xSOC*NUMCELLS;
 xIND.V1     = 1+(xV1-1)*NUMCELLS:xV1*NUMCELLS;
 xIND.V2     = 1+(xV2-1)*NUMCELLS:xV2*NUMCELLS;
 xIND.Tc     = 1+(xTc-1)*NUMCELLS:xTc*NUMCELLS;
 xIND.Ts     = 1+(xTs-1)*NUMCELLS:xTs*NUMCELLS;
+xIND.Curr   = 1+(xCurr-1)*NUMCELLS:xCurr*NUMCELLS; % Passing the curr back in to the state to prevent using current in output function
 
 yIND.Volt   = 1+(yVolt-1)*NUMCELLS:yVolt*NUMCELLS;
 yIND.Ts     = 1+(yTs-1)*NUMCELLS:yTs*NUMCELLS;
+yIND.LPR    = 1+(yLPR-1)*NUMCELLS:yLPR*NUMCELLS;
 
 indices.x = xIND;
 indices.y = yIND;
 
 
-TARGET_SOC = 0.80; %0.98;
+TARGET_SOC = 0.85; %0.98;
 LPR_Target = 50;
 
 % Balance Efficiencies
@@ -150,13 +176,10 @@ indices.nx = nx;
 indices.ny = ny;
 indices.nu = nu;
 
-sampleTime = 4; % 0.5; % Sample time [s]
-readPeriod = 0.25; % How often to read from plant
-prevTime = 0; prevElapsed = 0;
 
 %% Predictive Model
 try
-    % Voltage Model
+    % ######## Voltage Model ########
     load(dataLocation + '008OCV_AB1_Rev3.mat', 'OCV', 'SOC'); % Lithium plating rate
     
     % Previously used parameters
@@ -182,9 +205,9 @@ try
     A12 = zeros(1, length(A11));
     A1 = [A11; A12];
     A1 = A1(:)';
-    A21 = -1./(R2 .* C2);
-    A22 = zeros(1, length(A21));
-    A2 = [A22; A21];
+    A22 = -1./(R2 .* C2);
+    A21 = zeros(1, length(A22));
+    A2 = [A21; A22];
     A2 = A2(:)';
     AV_cont = [A1; A2];
     BV_cont = [1./C1 ; 1./C2];
@@ -207,31 +230,79 @@ try
     voltMdl.OCV = interp1(SOC, OCV, resampleSOC, 'pchip', 'extrap'); % OCV;
     voltMdl.SOC = resampleSOC; % SOC;
     
-    cc = 59.903;
-    cs = 0.24409;
-    rc = 0.42963;
-    re = 0.098836;
-    ru = 16.419;
+    
+    % ########  Temp Model ########
+    cc = 59.903 * ones(1, NUMCELLS);
+    cs = 0.24409 * ones(1, NUMCELLS);
+    rc = 0.42963 * ones(1, NUMCELLS);
+    re = 0.098836 * ones(1, NUMCELLS);
+    ru = 16.419 * ones(1, NUMCELLS);
     
     % A,B,C,D Matrices  ***
-    AT_cont = [-1/(rc*cc), 1/(rc*cc) ; 1/(rc*cs), ((-1/cs)*((1/rc) + (1/ru)))];
-    BT_cont = [(re)/cc 0; 0, 1/(ru*cs)];
+    % Multi SS model
+    % Creates a row of repeating A Matrices
+    A11 = -1./(rc.*cc); % Top left of 2x2 matrix
+    A12 = 1./(rc.*cc);  % Top right of 2x2 matrix
+    A21 = 1./(rc.*cs); % Bottom left of 2x2 matrix
+    A22 = ((-1./cs).*((1./rc) + (1./ru))); % Bottom right of 2x2 matrix
+    A1 = [A11; A12]; A1 = A1(:)';
+    A2 = [A21; A22]; A2 = A2(:)';
+    A_cont = repmat([A1; A2], NUMCELLS, 1);
+    
+    % Creates a row of repeating B Matrices
+    B11 = (re)./cc; % Top left of 2x2 matrix
+    B12 = zeros(1, NUMCELLS);  % Top right of 2x2 matrix
+    B21 = zeros(1, NUMCELLS); % Bottom left of 2x2 matrix
+    B22 = 1./(ru.*cs); % Bottom right of 2x2 matrix
+    B1 = [B11; B12]; B1 = B1(:)';
+    B2 = [B21; B22]; B2 = B2(:)';
+    B_cont = repmat([B1; B2], NUMCELLS, 1);
+    
+    % Creates a row of repeating C Matrices
+    C11 = zeros(1, NUMCELLS); % Top left of 2x2 matrix
+    C12 = zeros(1, NUMCELLS);  % Top right of 2x2 matrix
+    C21 = zeros(1, NUMCELLS); % Bottom left of 2x2 matrix
+    C22 = ones(1, NUMCELLS); % Bottom right of 2x2 matrix
+    C1 = [C11; C12]; C1 = C1(:)';
+    C2 = [C21; C22]; C2 = C2(:)';
+    C = repmat([C1; C2], NUMCELLS, 1);
+    
+    D = zeros(size(C));
+    
+    % Single SS model
+    %{
+    A_cont = [-1/(rc*cc), 1/(rc*cc) ; 1/(rc*cs), ((-1/cs)*((1/rc) + (1/ru)))];
+    B_cont = [(re)/cc 0; 0, 1/(ru*cs)];
     C = [0 0; 0 1]; %eye(2);
     D = [0, 0;0, 0];
+    %}
+    
+    % Filter out the unnecesary nondiag matrices
+    filter = eye(size(A_cont));
+    filter = replaceDiag(filter, ones(NUMCELLS, 1), 1:2:size(A_cont, 1)-1, -1); % replace bottom diag with 1's
+    filter = replaceDiag(filter, ones(NUMCELLS, 1), 1:2:size(A_cont, 1)-1, 1); % replace top diag with 1's
     
     tempMdl = struct;
-    tempMdl.A_cont = AT_cont;
-    tempMdl.B_cont = BT_cont;
+    tempMdl.A_cont = A_cont .* filter;
+    tempMdl.B_cont = B_cont .* filter;
     tempMdl.C = C;
     tempMdl.D = D;
     
+    sys_temp = ss(tempMdl.A_cont,tempMdl.B_cont,C,D);
+    sds_temp = c2d(sys_temp,sampleTime);
+    
+    tempMdl.A = sds_temp.A;
+    tempMdl.B = sds_temp.B;
+    
+    % Manual Discretization of SS model
+    %{
     A_Dis = expm(tempMdl.A_cont * sampleTime);
     tempMdl.A = A_Dis;
-    tempMdl.B = tempMdl.A_cont\(A_Dis - eye(size(A_Dis,1))) * tempMdl.B_cont;
-%     tempMdl.Tf = Tf; % Ambient Temp % Moved to next section since
-%     measurement is needed
+    tempMdl.B = tempMdl.A\(A_Dis - eye(size(A_Dis,1))) * tempMdl.B_cont;
+    %}
     
-    % SOC Deviation Matrix
+    
+    % ######## SOC Deviation Matrix ########
     L2 = [zeros(NUMCELLS-1, 1), (-1 * eye(NUMCELLS-1))];
     L1 = eye(NUMCELLS);
     L1(end, :) = [];
@@ -258,6 +329,7 @@ try
     T_dchrg =  eye(NUMCELLS) - (repmat(1/NUMCELLS, NUMCELLS) * dischrgEff); % Current Transformation to convert primary cell currents to net cell currents to each cell during discharging
     currMdl.T_chrg = T_chrg;
     currMdl.T_dchrg = T_dchrg;
+    currMdl.balWeight = 1; % Whether or not to use the balancing currents during optimization
     
     % Lithium Plating Lookup table (From "LiPlateRate.mat")
     load(dataLocation + 'LiPlateRate.mat'); % Lithium plating rate
@@ -297,6 +369,7 @@ battData.Tf             = Tf;                   % Ambient Temp
 battData.volt           = cells.volt(cellIDs)';
 battData.curr           = cells.curr(cellIDs)'; % zeros(1, NUMCELLS);
 battData.LiPlateRate    = zeros(1, NUMCELLS);
+LPR = battData.LiPlateRate;
 
 % initialSOCs = cells.SOC(cellIDs); % Using the saved cell SOC from previous run
 % Using OCV vs SOC to initialize the cell SOCs based on their resting voltages
@@ -352,9 +425,9 @@ try
     end
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;
-    mpcObj.MV(NUMCELLS + 1).Min =  -1; % (MAX_CELL_CURR - MAX_BAL_CURR);
+    mpcObj.MV(NUMCELLS + 1).Min =  -1; % -0.5; % (MAX_CELL_CURR - MAX_BAL_CURR);
     mpcObj.MV(NUMCELLS + 1).RateMax =  2; % MAX_CELL_CURR;
-    mpcObj.MV(NUMCELLS + 1).RateMin = -1; % -6
+    mpcObj.MV(NUMCELLS + 1).RateMin = -2; % -6
     
     % Equality Limits for state/output vars for each cell
     for i=1:NUMCELLS
@@ -367,10 +440,13 @@ try
         mpcObj.States(i + (xTs-1) * NUMCELLS).Min =  0;
         mpcObj.States(i + (xTs-1) * NUMCELLS).ScaleFactor =  44;
         
-%         % Volt
-%         mpcObj.OV(i + (yVolt-1) * NUMCELLS).Max =  MAX_CHRG_VOLT(i) - 0.01;
-%         mpcObj.OV(i + (yVolt-1) * NUMCELLS).Min =  MIN_DCHRG_VOLT(i);
-%         mpcObj.OV(i + (yVolt-1) * NUMCELLS).ScaleFactor =  MAX_CHRG_VOLT(i);
+        % LPR
+        mpcObj.OV(i + (yLPR-1) * NUMCELLS).Max =  LPR_Target;
+        mpcObj.OV(i + (yLPR-1) * NUMCELLS).Min =  0;
+        mpcObj.OV(i + (yLPR-1) * NUMCELLS).ScaleFactor =  300;
+        mpcObj.OV(i + (yLPR-1) * NUMCELLS).MinECR =  0;
+        mpcObj.OV(i + (yLPR-1) * NUMCELLS).MaxECR =  0;
+    
     end
     
     bal.Set_OVUV_Threshold(MAX_CELL_VOLT(1, 1), MIN_CELL_VOLT(1, 1));
@@ -410,8 +486,8 @@ try
     mpcinfo = [];
     
     % SOC tracking, LPR tracking, and temp rise rate cuz refs have to equal number of outputs
-    references = [repmat(TARGET_SOC, 1, NUMCELLS), repmat(LPR_Target, 1, NUMCELLS)]; %,...
-%          repmat(3, 1, NUMCELLS)];
+    references = [repmat(TARGET_SOC, 1, NUMCELLS), repmat(LPR_Target, 1, NUMCELLS),... % ]; %
+         repmat(3, 1, NUMCELLS)];
     
     u0 = [battData.balCurr, battData.optPSUCurr];
     combCurr = battData.curr(:);
@@ -422,10 +498,12 @@ catch ME
 end
 
 %% Parallel Pool
-pool = gcp('nocreate');
-% Start Parallel Pool if it doesn't exist
-if isempty(pool) 
-    pool = parpool(1);
+if USE_PARALLEL == true
+    pool = gcp('nocreate');
+    % Start Parallel Pool if it doesn't exist
+    if isempty(pool)
+        pool = parpool(1);
+    end
 end
 
 %% Extended Kalman Filter Configuration
@@ -457,197 +535,143 @@ obsvCov = cov(plantObvs_V_Ts - mean(plantObvs_V_Ts, 1));
 zCov = diag(obsvCov);
 %}
 
-zCov = [4.24849699398227e-09;3.08216432866192e-09;4.52248496993420e-09;1.86977955912091e-09;0.000118797595190384;0.00142701402805615;0;0.00124933867735475];
+zCov = [4.24849699398227e-09;3.08216432866192e-09;4.52248496993420e-09;1.86977955912091e-09;...
+    0.000118797595190384; 0.00142701402805615; 0; 0.00124933867735475; ...
+    0.001; 0.001; 0.001; 0.001 ]; % 1e-10; 1e-10; 1e-10; 1e-10];
 % zCov = repmat([0.08, 0.01], NUMCELLS, 1); % Measurement Noise covariance (assuming no cross correlation) % [0.02, 0.08, 0.01] 
 ekf.MeasurementNoise = diag(zCov(:));
-ekf.ProcessNoise = 0.07;
+pCov = repmat([0.02, 0.005, 0.007, 0.05, 0.05, 0.001], NUMCELLS, 1);
+ekf.ProcessNoise = diag(pCov(:));
+% ekf.ProcessNoise = 0.07;
 
 %% MPC Simulation Loop
+
+u = zeros(NUMCELLS + 1,1);
+options = nlmpcmoveopt;
+options.Parameters = {p1, p2, p3, p4};
 
 mpcTimer = tic;
 mpcRunning = false;
 poolState = 'finished';
 
-r = rateControl(1/sampleTime);
-u = zeros(NUMCELLS + 1,1);
-options = nlmpcmoveopt;
-options.Parameters = {p1, p2, p3, p4};
 try     
-    sTime = [];readTime = [];
-    reset(r); 
-    tElapsed_plant = 0; prevStateTime = 0; prevMPCTime = 0;
+    testingData.xk = []; testingData.u = []; testingData.y = []; testingData.CellCurr = [];
+    testingData.xk(end + 1, :) = xk(:)';
+    y_Ts = thermoData(2:end);
+    y = [ reshape(cells.volt(cellIDs), 1, []),  y_Ts(:)', LPR(:)'];
+    testingData.y(end + 1, :) = y(:)';
+    testingData.u(end + 1, :) = u(:)';
+    testingData.CellCurr(end + 1, :) = cells.curr(cellIDs);
     
-    %{
-    while max(xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) <= TARGET_SOC)
-        
-        idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MAX_CELL_CURR));
-        SOC_Target = xk(xIND.SOC) + (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC - xk(xIND.SOC, 1));
-        references = [SOC_Target(:)', repmat(LPR_Target, 1, NUMCELLS)]; %,...
-%              repmat(3, 1, NUMCELLS)];
-
-%         tt = tic;
-        % Run the MPC controller
-        [u,~,mpcinfo] = nlmpcmove(mpcObj, xk, u,...
-            references,[], options); % (:,idx-1)
-%         toc(tt)
-
-        mdl_X = P06_BattStateFcn_HW(xk, u, p1, p2, p3, p4);
-        mdl_Y = P06_OutputFcn_HW(mdl_X, u, p1, p2, p3, p4)';
-        
-        optCurr = u; % u<0 == Charging, u>0 == discharging
-        cost = mpcinfo.Cost;
-        iters = mpcinfo.Iterations;
-        
-        % Balancer and PSU Current
-        balCurr = optCurr(1:NUMCELLS);
-        battData.balCurr = [battData.balCurr; balCurr'];
-        optPSUCurr = optCurr(end);
-        battData.optPSUCurr  = [battData.optPSUCurr ; optPSUCurr];
-        
-        % Set power supply current
-        curr = abs(optPSUCurr); % PSU Current. Using "curr" since script in nect line uses "curr"
-        script_charge;
-
-        bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = balCurr;
-        % send balance charges to balancer
-        bal.SetBalanceCharges(balBoard_num, balCurr*sampleTime); % Send charges in As
-        
-        % Collect Measurements
-        wait(0.05);
-        script_queryData;
-        script_failSafes; %Run FailSafe Checks
-        script_checkGUICmd; % Check to see if there are any commands from GUI
-        % if limits are reached, break loop
-        if errorCode == 1 || strcmpi(testStatus, "stop")
-            script_idle;
-        end
-        
-        temp = thermoData(2:end);
-        LPR = lookup2D(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
-            reshape(cells.curr(cellIDs), [], 1), reshape(cells.SOC(cellIDs), [], 1) );
-        
-        waitfor(r);
-        
-        % Get Elapsed Time
-        tElapsed_MPC = toc(mpcTimer);
-        
-        battData.time           = [battData.time        ; tElapsed_MPC   ]; ind = 1;
-        battData.volt           = [battData.volt        ; reshape(cells.volt(cellIDs), 1, [])]; ind = ind + 1;
-        battData.curr           = [battData.curr        ; reshape(cells.curr(cellIDs), 1, [])]; ind = ind + 1;
-        battData.SOC            = [battData.SOC         ; reshape(cells.SOC(cellIDs), 1, [])]; ind = ind + 1;
-        battData.Ts             = [battData.Ts          ; temp(:)']; ind = ind + 1;
-        battData.LiPlateRate    = [battData.LiPlateRate ; LPR(:)']; ind = ind + 1;
-        battData.Cost           = [battData.Cost ; cost];
-        battData.Iters          = [battData.Iters ; iters];
-        battData.ExitFlag       = [battData.ExitFlag ; mpcinfo.ExitFlag];
-        
-        % Get Measurements to update states (Volt, Ts)
-        y = [battData.volt(end, :), battData.Ts(end, :)];
-        
-        % Kalman filter plant measurements to get the hidden model states
-        % Predict Step
-        [PredictedState,PredictedStateCovariance] = predict(ekf, u, options.Parameters{:});
-        
-        % Correct Step
-        [CorrectedState,CorrectedStateCovariance] = correct(ekf, y, u, options.Parameters{:});
-        
-        xk = CorrectedState';
-        xk = xk(:);
-                
-        
-        tempStr = ""; voltStr = ""; currStr = ""; socStr = ""; psuStr = "";  balStr = "";
-        MPCStr = ""; LPRStr = "";
-        MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\t\tIters = %d\n", mpcinfo.ExitFlag, cost, iters);
-        
-        for i = 1:NUMCELLS-1
-            tempStr = tempStr + sprintf("Ts%d = %.2f ºC\t\t" , i, battData.Ts(end,i));
-            voltStr = voltStr + sprintf("Volt %d = %.4f V\t", i, battData.volt(end,i));
-            LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\t", i, battData.LiPlateRate(end,i));
-            balStr = balStr + sprintf("Bal %d = %.4f A\t", i, battData.balCurr(end,i));
-            currStr = currStr + sprintf("Curr %d = %.4f\t", i, battData.curr(end,i));
-            socStr = socStr + sprintf("SOC %d = %.4f\t\t", i, battData.SOC(end, i));
-        end
-        
-        for i = i+1:NUMCELLS
-            tempStr = tempStr + sprintf("Ts %d = %.2f ºC\n" , i, battData.Ts(end,i));
-            voltStr = voltStr + sprintf("Volt %d = %.4f V\n", i, battData.volt(end,i));
-            LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\n", i, battData.LiPlateRate(end,i));
-            balStr = balStr + sprintf("Bal %d = %.4f A\n", i, battData.balCurr(end,i));
-            currStr = currStr + sprintf("Curr %d = %.4f\n", i, battData.curr(end,i));
-            socStr = socStr + sprintf("SOC %d = %.4f\n", i, battData.SOC(end, i));
-        end
-        psuStr = psuStr + sprintf("PSUCurr = %.4f A", optPSUCurr(1));
-        
-        disp(newline)
-        disp(num2str(tElapsed_MPC,'%.2f') + " seconds");
-        sTime = [sTime; tElapsed_MPC - prevElapsed];
-        disp("STime: " + sTime(end, 1) + " Seconds."); 
-            disp(mdl_Y(yIND.Volt))
-        fprintf(tempStr + newline);
-        fprintf(voltStr + newline);
-        fprintf(LPRStr + newline);
-        fprintf(psuStr + newline);
-        fprintf(balStr + newline);
-        fprintf(MPCStr + newline);
-        fprintf(currStr + newline);
-        fprintf(socStr);
-        
-        % curr > 0 = Discharging
-        % Remaining Charge time
-        ifcurr = combineCurrents(optPSUCurr, balCurr, currMdl);
-        if (max(ifcurr > 0 & xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) <= 0.01))...
-                || (max(ifcurr < 0 & xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) >= 0.99))
-            disp("Test Overcharged after: " + tElapsed_MPC + " seconds.")
-            break;
-        elseif errorCode == 1
-            disp("An error or Stop test request has occured." + newline...
-                + "Test Stopped After: " + tElapsed_MPC + " seconds.")
-            script_resetDevices;
-            break;
-        end
-        
-        prevElapsed = tElapsed_MPC;
-        
+    if (max(battData.SOC(end, :) > MAX_BAL_SOC) ...
+            || min(battData.SOC(end, :) < MIN_BAL_SOC))
+        BalanceCellsFlag = false; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
+        predMdl.Curr.balWeight = 0;
+        p2 = predMdl;
+        options.Parameters = {p1, p2, p3, p4};
+    elseif max(battData.SOC(end, :) < MAX_BAL_SOC) ...
+            && min(battData.SOC(end, :) > MIN_BAL_SOC)
+        BalanceCellsFlag = true; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
+        predMdl.Curr.balWeight = 1;
     end
-    %}
-    
-    while max(xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) <= TARGET_SOC)
+
+    sTime = [];readTime = [];
+    tElapsed_plant = 0; prevStateTime = 0; prevMPCTime = 0;
+
+    while min(battData.SOC(end, :) <= TARGET_SOC)       
         
-        tElapsed_MPC = toc(testTimer);
         if ( toc(testTimer)- prevMPCTime ) >= sampleTime && strcmpi(poolState, "finished")
+            tElapsed_MPC = toc(testTimer);
             actual_STime = tElapsed_MPC - prevMPCTime;
             prevMPCTime = tElapsed_MPC;
 
             idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MAX_CELL_CURR));
             SOC_Target = xk(xIND.SOC) + (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC - xk(xIND.SOC, 1));
-            references = [SOC_Target(:)', repmat(LPR_Target, 1, NUMCELLS)]; 
+            references = [SOC_Target(:)', repmat(LPR_Target, 1, NUMCELLS),... % ]; %
+                            repmat(3, 1, NUMCELLS)]; 
+            
+            LPRind = reshape(cells.curr(cellIDs), [], 1) < 0;
+            interpCurr = reshape(cells.curr(cellIDs), [], 1) .* (LPRind);
+            LPR = qinterp2(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
+               interpCurr , reshape(cells.SOC(cellIDs), [], 1) );
+            testingData.CellCurr(end + 1, :) = cells.curr(cellIDs);
+                
+            % Update Observation (Volt, Ts)
+            y_Ts = thermoData(2:end);
+            y = [ reshape(cells.volt(cellIDs), 1, []),  y_Ts(:)', LPR(:)'];
+            testingData.y(end + 1, :) = y(:)';
+            
+%             % Check if the balancer is still running, if not set currents
+%             % as zero
+%             uk_bal = [bal.Timed_Balancers(1, logical(bal.cellPresent(1, :))).bal_timer]; 
+%             uk_bal_ind = (uk_bal ~= 0);
+%             u(1:NUMCELLS) = u(1:NUMCELLS) .* uk_bal_ind(:);
+            
+            testingData.u(end + 1, :) = u(:)';
 
-            %          t = tic;
+            % Kalman filter plant measurements to get the hidden model states
+            % Predict Step
+            [PredictedState,PredictedStateCovariance] = predict(ekf, u, options.Parameters{:});
 
-            % Run the MPC controller in parallel
-            mpcFeval = parfeval(pool,@nlmpcmove, 3, mpcObj,  xk, u,...
-                references,[], options);
+            % Correct Step
+            [CorrectedState,CorrectedStateCovariance] = correct(ekf, y(:), u, options.Parameters{:});
+
+            xk = CorrectedState';
+            xk = xk(:);
+            testingData.xk(end + 1, :) = xk(:)';
+            
+            % Run the MPC controller
+            if USE_PARALLEL == true
+                mpcFeval = parfeval(pool,@nlmpcmove, 3, mpcObj,  xk, u,...
+                    references,[], options);
+            else
+                [u,~,mpcinfo] = nlmpcmove(mpcObj, xk, u,...
+                    references,[], options); % (:,idx-1)
+            end
+
             mpcRunning = true;
-
-            %         toc(t)
         end
-       
-        if exist('mpcFeval', 'var')
-            poolState = mpcFeval.State;
+        
+        if exist('mpcFeval', 'var') || USE_PARALLEL == false
+            if USE_PARALLEL == true, poolState = mpcFeval.State; end
             if strcmpi(poolState, "finished") && mpcRunning == true
-                [u,~,mpcinfo] = fetchOutputs(mpcFeval,'UniformOutput',false);
+                if USE_PARALLEL == true
+                    [u,~,mpcinfo] = fetchOutputs(mpcFeval,'UniformOutput',false);
+                    u = u{:};
+                    mpcinfo = mpcinfo{:};
+                end
                 mpcRunning = false;
-                u = u{:};
-                mpcinfo = mpcinfo{:};
+                
+                mdl_X = P06_BattStateFcn_HW(xk, u, p1, p2, p3, p4);
+                mdl_Y = P06_OutputFcn_HW(mdl_X, u, p1, p2, p3, p4)';
+
+                optCurr = u; % u<0 == Charging, u>0 == discharging
+                cost = mpcinfo.Cost;
+                iters = mpcinfo.Iterations;
+
+                % Balancer and PSU Current
+                balCurr = optCurr(1:NUMCELLS);
+                battData.balCurr = [battData.balCurr; balCurr'];
+                optPSUCurr = optCurr(end);
+                battData.optPSUCurr  = [battData.optPSUCurr ; optPSUCurr];
+                
                 
                 % Set power supply current
-                curr = abs(u(end)); % PSU Current. Using "curr" since script in nect line uses "curr"
+                curr = abs(optPSUCurr); % PSU Current. Using "curr" since script in nect line uses "curr"
                 script_charge;
+                               
+                % Disable Balancing if SOC is past range. MPC won't optimize
+                % for Balance currents past this range
+                if BalanceCellsFlag == true
+                    bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = balCurr;
+                    
+                    % send balance charges to balancer
+                    bal.SetBalanceCharges(balBoard_num, balCurr*sampleTime); % Send charges in As
+                else
+                    bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = zeros(size(balCurr));
+                end
                 
-                bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = u(1:NUMCELLS);
-                % send balance charges to balancer
-                bal.SetBalanceCharges(balBoard_num, u(1:NUMCELLS)*sampleTime); % Send charges in As
-                
+                %{
                 % Collect Measurements
                 wait(0.1); % Wait for 100ms for the pack to respond to the applied currents
                 script_queryData;
@@ -670,29 +694,102 @@ try
                 
                 xk = CorrectedState';
                 xk = xk(:);
+                %}
+                
+                tElapsed_plant = toc(testTimer);
+                sTime = [sTime; actual_STime]; 
+                
+                % Combine the PSU and BalCurr based on the balancer transformation
+                % matrix
+                combCurr = combineCurrents(optPSUCurr, balCurr, predMdl);
+                
+                y_Ts = thermoData(2:end);
+                
+                LPRind = reshape(cells.curr(cellIDs), [], 1) < 0;
+                interpCurr = reshape(cells.curr(cellIDs), [], 1) .* (LPRind);
+                LPR = qinterp2(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
+                   interpCurr , reshape(cells.SOC(cellIDs), [], 1) );
+                
+                battData.time           = [battData.time        ; tElapsed_plant   ]; ind = 1;
+                battData.volt           = [battData.volt        ; reshape(cells.volt(cellIDs), 1, [])]; ind = ind + 1;
+                battData.curr           = [battData.curr        ; reshape(cells.curr(cellIDs), 1, [])]; ind = ind + 1;
+                battData.SOC            = [battData.SOC         ; reshape(cells.SOC(cellIDs), 1, [])]; ind = ind + 1;
+                battData.Ts             = [battData.Ts          ; y_Ts(:)']; ind = ind + 1;
+                battData.LiPlateRate    = [battData.LiPlateRate ; LPR(:)']; ind = ind + 1;
+                battData.Cost           = [battData.Cost ; cost];
+                battData.Iters          = [battData.Iters ; iters];
+                battData.ExitFlag       = [battData.ExitFlag ; mpcinfo.ExitFlag];
+                
+                
+                tempStr = ""; voltStr = ""; currStr = ""; socStr = ""; psuStr = "";  balStr = "";
+                MPCStr = ""; LPRStr = "";
+                MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\t\tIters = %d\n", mpcinfo.ExitFlag, cost, iters);
+                
+                for i = 1:NUMCELLS-1
+                    tempStr = tempStr + sprintf("Ts%d = %.2f ºC\t\t" , i, battData.Ts(end,i));
+                    voltStr = voltStr + sprintf("Volt %d = %.4f V\t", i, battData.volt(end,i));
+                    LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\t", i, battData.LiPlateRate(end,i));
+                    balStr = balStr + sprintf("Bal %d = %.4f A\t", i, battData.balCurr(end,i));
+                    currStr = currStr + sprintf("Curr %d = %.4f\t", i, battData.curr(end,i));
+                    socStr = socStr + sprintf("SOC %d = %.4f\t\t", i, battData.SOC(end, i));
+                end
+                
+                for i = i+1:NUMCELLS
+                    tempStr = tempStr + sprintf("Ts %d = %.2f ºC\n" , i, battData.Ts(end,i));
+                    voltStr = voltStr + sprintf("Volt %d = %.4f V\n", i, battData.volt(end,i));
+                    LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\n", i, battData.LiPlateRate(end,i));
+                    balStr = balStr + sprintf("Bal %d = %.4f A\n", i, battData.balCurr(end,i));
+                    currStr = currStr + sprintf("Curr %d = %.4f\n", i, battData.curr(end,i));
+                    socStr = socStr + sprintf("SOC %d = %.4f\n", i, battData.SOC(end, i));
+                end
+                psuStr = psuStr + sprintf("PSUCurr = %.4f A", optPSUCurr(1));
+                
+                disp(newline)
+                disp(num2str(tElapsed_plant,'%.2f') + " seconds");
+                readTime = [readTime; tElapsed_plant - prevElapsed];
+                timingStr = sprintf("ReadTime: %.3f Secs \tPrev Opt Time: %.3f Secs",...
+                    readTime(end, 1), sTime(end, 1));
+                
+                fprintf(timingStr + newline);
+                
+                fprintf(tempStr + newline);
+                fprintf("\t"); disp(mdl_Y(yIND.Volt))
+                fprintf(voltStr + newline);
+                fprintf(LPRStr + newline);
+                fprintf(psuStr + newline);
+                fprintf(balStr + newline);
+                fprintf(MPCStr + newline);
+                fprintf(currStr + newline);
+                fprintf(socStr);
+                
+                prevElapsed = tElapsed_plant;
+                
+                
+                % Disable Balancing if SOC is past range. MPC won't optimize
+                % for Balance currents past this range
+                if (max(battData.SOC(end, :) > MAX_BAL_SOC) ...
+                    || min(battData.SOC(end, :) < MIN_BAL_SOC)) % && BalanceCellsFlag == true
+                    BalanceCellsFlag = false;
+                    predMdl.Curr.balWeight = 0;
+                    p2 = predMdl;
+                    options.Parameters = {p1, p2, p3, p4};
+                    u = [zeros(NUMCELLS, 1); u(end)]; 
+                elseif max(battData.SOC(end, :) < MAX_BAL_SOC) ...
+                    && min(battData.SOC(end, :) > MIN_BAL_SOC) % && BalanceCellsFlag == false
+                    BalanceCellsFlag = true;
+                    predMdl.Curr.balWeight = 1;
+                    p2 = predMdl;
+                    options.Parameters = {p1, p2, p3, p4};
+                end
+
             end
         end
-        
 
-        
+               
+        % Record Data from devices
         if (( toc(testTimer)- prevStateTime ) >= readPeriod ) && ~isempty(mpcinfo)
-            tElapsed_plant = toc(testTimer);
-            sTime = [sTime; actual_STime];
-            dt = tElapsed_plant - prevStateTime; prevStateTime = tElapsed_plant;
-            
-            mdl_X = P06_BattStateFcn_HW(xk, u, p1, p2, p3, p4);
-            mdl_Y = P06_OutputFcn_HW(mdl_X, u, p1, p2, p3, p4)';
-            
-            optCurr = u; % u<0 == Charging, u>0 == discharging
-            cost = mpcinfo.Cost;
-            iters = mpcinfo.Iterations;
-            
-            % Balancer and PSU Current
-            balCurr = optCurr(1:NUMCELLS);
-            battData.balCurr = [battData.balCurr; balCurr'];
-            optPSUCurr = optCurr(end);
-            battData.optPSUCurr  = [battData.optPSUCurr ; optPSUCurr];
-            
+            prevStateTime = toc(testTimer); 
+
             % Collect Measurements
             script_queryData;
             script_failSafes; %Run FailSafe Checks
@@ -701,71 +798,14 @@ try
             if errorCode == 1 || strcmpi(testStatus, "stop")
                 script_idle;
             end
-            
-            % Combine the PSU and BalCurr based on the balancer transformation
-            % matrix
-            combCurr = combineCurrents(optPSUCurr, balCurr, currMdl);
-            
-            temp = thermoData(2:end);
-            LPR = lookup2D(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
-                reshape(cells.curr(cellIDs), [], 1), reshape(cells.SOC(cellIDs), [], 1) );
-            
-            battData.time           = [battData.time        ; tElapsed_plant   ]; ind = 1;
-            battData.volt           = [battData.volt        ; reshape(cells.volt(cellIDs), 1, [])]; ind = ind + 1;
-            battData.curr           = [battData.curr        ; reshape(cells.curr(cellIDs), 1, [])]; ind = ind + 1;
-            battData.SOC            = [battData.SOC         ; reshape(cells.SOC(cellIDs), 1, [])]; ind = ind + 1;
-            battData.Ts             = [battData.Ts          ; temp(:)']; ind = ind + 1;
-            battData.LiPlateRate    = [battData.LiPlateRate ; LPR(:)']; ind = ind + 1;
-            battData.Cost           = [battData.Cost ; cost];
-            battData.Iters          = [battData.Iters ; iters];
-            battData.ExitFlag       = [battData.ExitFlag ; mpcinfo.ExitFlag];
-            
-            
-            tempStr = ""; voltStr = ""; currStr = ""; socStr = ""; psuStr = "";  balStr = "";
-            MPCStr = ""; LPRStr = "";
-            MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\t\tIters = %d\n", mpcinfo.ExitFlag, cost, iters);
-            
-            for i = 1:NUMCELLS-1
-                tempStr = tempStr + sprintf("Ts%d = %.2f ºC\t\t" , i, battData.Ts(end,i));
-                voltStr = voltStr + sprintf("Volt %d = %.4f V\t", i, battData.volt(end,i));
-                LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\t", i, battData.LiPlateRate(end,i));
-                balStr = balStr + sprintf("Bal %d = %.4f A\t", i, battData.balCurr(end,i));
-                currStr = currStr + sprintf("Curr %d = %.4f\t", i, battData.curr(end,i));
-                socStr = socStr + sprintf("SOC %d = %.4f\t\t", i, battData.SOC(end, i));
-            end
-            
-            for i = i+1:NUMCELLS
-                tempStr = tempStr + sprintf("Ts %d = %.2f ºC\n" , i, battData.Ts(end,i));
-                voltStr = voltStr + sprintf("Volt %d = %.4f V\n", i, battData.volt(end,i));
-                LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\n", i, battData.LiPlateRate(end,i));
-                balStr = balStr + sprintf("Bal %d = %.4f A\n", i, battData.balCurr(end,i));
-                currStr = currStr + sprintf("Curr %d = %.4f\n", i, battData.curr(end,i));
-                socStr = socStr + sprintf("SOC %d = %.4f\n", i, battData.SOC(end, i));
-            end
-            psuStr = psuStr + sprintf("PSUCurr = %.4f A", optPSUCurr(1));
-            
-            disp(newline)
-            disp(num2str(tElapsed_plant,'%.2f') + " seconds");
-            readTime = [readTime; tElapsed_plant - prevElapsed];
-            timingStr = sprintf("ReadTime: %.3f Secs \tSTime: %.3f Secs", readTime(end, 1), sTime(end, 1));
-            
-            fprintf(timingStr + newline);
-
-            fprintf(tempStr + newline);
-            fprintf("\t"); disp(mdl_Y(yIND.Volt))
-            fprintf(voltStr + newline);
-            fprintf(LPRStr + newline);
-            fprintf(psuStr + newline);
-            fprintf(balStr + newline);
-            fprintf(MPCStr + newline);
-            fprintf(currStr + newline);
-            fprintf(socStr);
-            
         end
+        
+        
         % curr > 0 = Discharging
         if (max(combCurr > 0 & xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) <= 0.01))...
                 || (max(combCurr < 0 & xk(1+NUMCELLS*(xIND.SOC-1):NUMCELLS*xIND.SOC, :) >= 0.99))
             disp("Test Overcharged after: " + tElapsed_plant + " seconds.")
+            script_resetDevices;
             break;
         elseif errorCode == 1
             disp("An error or Stop test request has occured." + newline...
@@ -773,11 +813,9 @@ try
             script_resetDevices;
             break;
         end
-        
-        prevElapsed = tElapsed_plant;
-        
+                
     end
-    
+    script_resetDevices;
     disp("Test Completed After: " + tElapsed_plant + " seconds.")
 
 catch ME
@@ -801,13 +839,13 @@ xIND = indices.x;
 
 devMat = predMdl.SOC.devMat;
 
-lprMdl = predMdl.LPR;
-
 p = data.PredictionHorizon;
 %     for i=1:p+1
 %         Y(i,:) = P06_OutputFcn_HW(X(i,:)',U(i,:)',p1, p2)';
 %     end
 
+% %%%%%%%%%%% Cell Current Calculation %%%%%%%%%%%
+%{
 balCurr = U(2:p+1,1:NUMCELLS);
 psuCurr =  U(2:p+1, end);
 
@@ -818,8 +856,8 @@ logicalInd = balCurr' >= 0;
 balActual_dchrg = predMdl.Curr.T_dchrg * (balCurr' .* (logicalInd));
 balActual_chrg = predMdl.Curr.T_chrg * (balCurr' .* (~logicalInd));
 balActual = balActual_chrg + balActual_dchrg;
-curr = psuCurr + balActual'; % Actual Current in each cell
-
+curr = psuCurr + (predMdl.Curr.balWeight*balActual'); % Actual Current in each cell
+%}
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Get the Objective vectors in pred horizon (2:p+1)
@@ -856,20 +894,28 @@ socDev = devMat * chrgSOC';
 %}
 
 % %%%%%%%%%%%%%%%%%%%%%%%  Li Plate Rate   %%%%%%%%%%%%%%%%%%%%%%%%%%
+%{
+    curr = X(2:p+1, xIND.Curr);
+    lprMdl = predMdl.LPR;
     LPRind = curr < 0;
     interpCurr = curr .* (LPRind);
-%     LiPlateRate = qinterp2(-lprMdl.Curr, lprMdl.SOC, lprMdl.LPR,...
-%                     interpCurr, X(2:p+1, xIND.SOC));
-    
-    LiPlateRate = lookup2D(-lprMdl.Curr, lprMdl.SOC, lprMdl.LPR,...
+    LiPlateRate = qinterp2(-lprMdl.Curr, lprMdl.SOC, lprMdl.LPR,...
                     interpCurr, X(2:p+1, xIND.SOC));
-    LiPlateRate = reshape(LiPlateRate, size(curr));
+    
+%     LiPlateRate = lookup2D(-lprMdl.Curr, lprMdl.SOC, lprMdl.LPR,...
+%                     interpCurr, X(2:p+1, xIND.SOC));
+%     LiPlateRate = reshape(LiPlateRate, size(curr));
+%}
+% LiPlateRate = X(2:p+1, xIND.LPR);
+
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Objective Function Weights (0, 1, 5, 20 etc))
 % ---------------------------------------------------------------------
-A = 5; % 0.05; %0.85; % SOC Tracking and SOC Deviation
-A_dev = 10; %100 * max(abs(socDev(1, :))) + 1;
+A = 20; % SOC Tracking
+% If SOC is past the set balance SOC range, then don't let the SOC dev
+% affect the cost function.
+A_dev = 50 * predMdl.Curr.balWeight; 
 B = 2; % Chg Time
 C = 1; % Temp Rise rate
 D = 5; % Li Plate Rate
@@ -885,7 +931,6 @@ ref = data.References;
 % Scaling Factors for each objective
 % ---------------------------------------------------------------------
 scale_soc = 1;
-scale_chrgTime = 1; % (MAX_CELL_CURR * dt)/(3600*cap(1)) .* (cap(1) * 3600)./ abs(MIN_CHRG_CURR);
 scale_TR = 3;
 scale_LPR = 300;
 
@@ -896,8 +941,7 @@ scale_LPR = 300;
 J = sum([...
     sum( ( (A/scale_soc) .* (ref(:, 1:NUMCELLS) - chrgSOC) ) .^2),  ... % avgSOC) ) .^2),  ... %
     sum( ( (A_dev/scale_soc) .* (0 - socDev) ) .^2),  ...
-    ... % sum( ( (B/scale_chrgTime) .* (0 - chrgTime) ) .^2),  ...
-    sum( ( (D/scale_LPR) .* (ref(:, 1*NUMCELLS+1:2*NUMCELLS) - LiPlateRate) ) .^2),  ...
+    ... % sum( ( (D/scale_LPR) .* (ref(:, 1*NUMCELLS+1:2*NUMCELLS) - LiPlateRate) ) .^2),  ...
     ... % sum( ( (C./scale_TR) .* (ref(:, 2*NUMCELLS+1:3*NUMCELLS) - tempRate) ) .^2),  ...
     ... % sum( ( (E/1) .* (0 - U(2:p+1,1:NUMCELLS)) ) .^2),  ...
     e.^2, ...
@@ -1007,12 +1051,12 @@ p = data.PredictionHorizon;
 
 MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.02;
 
-horizonInd = 1:p+1; %+1; % 2:p+1
+horizonInd = 2:p+1;
 Y = zeros(p, indices.ny);
 for i = 1:p+1
     Y(i,:) = P06_OutputFcn_HW(X(i,:)',U(i,:)',p1, p2, p3, p4)';
 end
-cineq0 = (Y(horizonInd, yIND.Volt) - MAX_CHRG_VOLT(:)')';
+cineq0 = (Y(horizonInd, yIND.Volt) - MAX_CHRG_VOLT')';
 cineq = cineq0(:);
 
 end
@@ -1030,7 +1074,7 @@ xIND = indices.x;
 parameters = {p1, p2, p3, p4};
 p = data.PredictionHorizon;
 
-horizonInd = 1:p+1; %+1; % 2:p+1 % Update regularly from "myIneqConFunction"
+horizonInd = 2:p+1; % Update regularly from "myIneqConFunction"
 
 x0 = X;
 u0 = U;
@@ -1050,11 +1094,19 @@ dv = 1e-6;
 %% Get Jx
 xa = abs(x0);
 xa(xa < 1) = 1;  % Prevents perturbation from approaching eps.
+C = zeros(nf, nx);
+for j = xIND.Curr %1:nx
+    dx = dv*xa(horizonInd(1), j);
+    x0(horizonInd(1), j) = x0(horizonInd(1), j) + dx;
+    f = myIneqConFunction(x0, U, e, data, parameters{:});
+    x0(horizonInd(1), j) = x0(horizonInd(1), j) - dx;
+    C(:,j) = (f - f0)/dx;
+end
 
 for ix = 1:length(horizonInd) 
     % Avoid using ix=1 ("how does the ineq change wrt to the previous state changing")
     % since it doesn't change the ineqs
-    if ix==1, continue; end 
+    if horizonInd(ix)==1, continue; end 
     
     %{
     % SOC
@@ -1128,9 +1180,9 @@ for ix = 1:length(horizonInd)
     Jx(:, xIND.Ts, ix-1) = dff;
     %}
     
-    Jx(1+(ix-1)*NUMCELLS:ix*NUMCELLS, xIND.V1, ix-1) = -1 * eye(NUMCELLS);
-    Jx(1+(ix-1)*NUMCELLS:ix*NUMCELLS, xIND.V2, ix-1) = -1 * eye(NUMCELLS);
-
+    Jx(1+(ix-1)*NUMCELLS:ix*NUMCELLS, xIND.V1, ix) = -1.00 * eye(NUMCELLS);
+    Jx(1+(ix-1)*NUMCELLS:ix*NUMCELLS, xIND.V2, ix) = -1.00 * eye(NUMCELLS);
+    Jx(1+(ix-1)*NUMCELLS:ix*NUMCELLS, xIND.Curr, ix) = C(1:NUMCELLS, xIND.Curr);% -0.01 * eye(NUMCELLS);
 end
 
 %% Get Ju
@@ -1220,8 +1272,8 @@ Jmv( 1+((length(horizonInd)-1)-1)*NUMCELLS : length(horizonInd)*NUMCELLS , :, p 
 %}
 
 
-%{
 % From Matlab's ineq function
+%{
 for i = 1:p-1
     for j = 1:nmv
         k = imv(j);
@@ -1296,33 +1348,21 @@ xa(xa < 1) = 1;  % Prevents perturbation from approaching eps.
 % SOC - How does changing the SOC change the states (SOC, V1, and V2. Tc or
 % Ts don't change)
 
+
+Jx(xIND.SOC, xIND.SOC) = eye(NUMCELLS); % Jacobian for the SOCs since they don't change when perturbed
+
 %{
-x0_Tavg = mean([x0(xIND.Tc), x0(xIND.Ts)], 2)';
-Jx(xIND.SOC, xIND.SOC) = eye(NUMCELLS); % Jacobian for the SOCs since they don't change when perturbed
-dx = dv*xa(xIND.SOC); % V1 and V2 changes wrt change in SOC
-x0(xIND.SOC) = x0(xIND.SOC) + dx;  % Perturb only SOC
-[v1, v2] = getRC_Volt(battMdl, dt, -abs(uc), x0(xIND.SOC)', x0_Tavg, x0(xIND.V1)', x0(xIND.V2)');
-x0(xIND.SOC) = x0(xIND.SOC) - dx; % Undo pertubation
-f = [v1(:); v2(:)];
-df = (f - f0([xIND.V1, xIND.V2]))./ [dx; dx]; % divide V1 and V2 by dx respectively
-df = reshape(df, 2, []);
-Jx(xIND.V1, xIND.SOC) = diag(df(1, :));
-Jx(xIND.V2, xIND.SOC) = diag(df(2, :));
-%}
-
-Jx(xIND.SOC, xIND.SOC) = eye(NUMCELLS); % Jacobian for the SOCs since they don't change when perturbed
-
-% dx = dv*xa(xIND.SOC);
-% x0(xIND.SOC) = x0(xIND.SOC) + dx;  % Perturb all states
-% f = P06_BattStateFcn_HW(x0, u0, parameters{:});
-% x0(xIND.SOC) = x0(xIND.SOC) - dx;  % Undo pertubation
-% df = (f - f0)./ repmat(dx, (nx/NUMCELLS), 1);
-% Jx(xIND.SOC, xIND.SOC) = diag(df(xIND.SOC, 1));
+dx = dv*xa(xIND.SOC);
+x0(xIND.SOC) = x0(xIND.SOC) + dx;  % Perturb all states
+f = P06_BattStateFcn_HW(x0, u0, parameters{:});
+x0(xIND.SOC) = x0(xIND.SOC) - dx;  % Undo pertubation
+df = (f - f0)./ repmat(dx, (nx/NUMCELLS), 1);
+Jx(xIND.SOC, xIND.SOC) = diag(df(xIND.SOC, 1));
 % Jx(xIND.V1, xIND.SOC) = diag(df(xIND.V1, 1));
 % Jx(xIND.V2, xIND.SOC) = diag(df(xIND.V2, 1));
 % Jx(xIND.Tc, xIND.SOC) = diag(df(xIND.Tc, 1));
 % Jx(xIND.Ts, xIND.SOC) = diag(df(xIND.Ts, 1));
-
+%}
 
 
 % RC Voltages - V1 and V2. 
@@ -1415,8 +1455,8 @@ Jx(: , xIND.Ts) = df_ts;
 % Jx(xIND.Tc, xIND.Tc) = diag(df(xIND.Tc, 1));
 % Jx(xIND.Ts, xIND.Tc) = diag(df(xIND.Ts, 1));
 
-Jx(xIND.Tc, xIND.Tc) = 0.992219589944262 * eye(NUMCELLS);
-Jx(xIND.Tc, xIND.Ts) = 0.003940352927910 * eye(NUMCELLS);
+Jx(xIND.Tc, xIND.Tc) = 0.991240769925956 * eye(NUMCELLS);
+Jx(xIND.Ts, xIND.Tc) = 0.966062163308749 * eye(NUMCELLS);
 
 % % TS
 % dx = dv*xa(xIND.Ts);
@@ -1430,8 +1470,11 @@ Jx(xIND.Tc, xIND.Ts) = 0.003940352927910 * eye(NUMCELLS);
 % Jx(xIND.Tc, xIND.Ts) = diag(df(xIND.Tc, 1));
 % Jx(xIND.Ts, xIND.Ts) = diag(df(xIND.Ts, 1));
 
-Jx(xIND.Ts, xIND.Tc) = 0.967016120252270 * eye(NUMCELLS);
-Jx(xIND.Ts, xIND.Ts) = 0.003840263642064 * eye(NUMCELLS);
+% Jx(xIND.Tc, xIND.Ts) = 0.967016120252270 * eye(NUMCELLS);
+% Jx(xIND.Ts, xIND.Ts) = 0.003840263642064 * eye(NUMCELLS);
+
+Jx(xIND.Tc, xIND.Ts) = 0.003936465759280 * eye(NUMCELLS);
+Jx(xIND.Ts, xIND.Ts) = 0.003836475313207 * eye(NUMCELLS);
 
 
 %% Get Jmv - How do the states change when each manipulated variable is changed?
@@ -1493,77 +1536,33 @@ nx = indices.nx; % Number of states
 ny = indices.ny; % Number of states
 C = zeros(ny, nx);
 
-% C(yIND.SOC, xIND.SOC) = eye(NUMCELLS);
-C(yIND.Volt, xIND.V1) = -1* eye(NUMCELLS);
-C(yIND.Volt, xIND.V2) = -1* eye(NUMCELLS);
-C(yIND.Ts, xIND.Ts) = eye(NUMCELLS);
+C(yIND.Volt, xIND.V1)   = -1.00 * eye(NUMCELLS);
+C(yIND.Volt, xIND.V2)   = -1.00 * eye(NUMCELLS);
+C(yIND.Ts, xIND.Ts)     =  1.00 * eye(NUMCELLS);
 
-
-
-%{
 parameters = {p1, p2, p3, p4};
 
 x0 = x;
 u0 = u;
 
 f0 = P06_OutputFcn_HW(x0, u0, parameters{:});
+vec = [xIND.SOC, xIND.Curr];
 
 % Perturb each variable by a fraction (dv) of its current absolute value.
 dv = 1e-6;
 %% Get Jx
 xa = abs(x0);
 xa(xa < 1) = 1;  % Prevents perturbation from approaching eps.
-for j = 1:nx
+for j = vec %1:nx
     dx = dv*xa(j);
     x0(j) = x0(j) + dx;
     f = P06_OutputFcn_HW(x0,u0,parameters{:});
     x0(j) = x0(j) - dx;
     C(:,j) = (f - f0)/dx;
 end
-%}
-
 
 end
 
-function combCurr = combineCurrents(psuCurr, balCurr, currMdl)
-    % Compute Actual Current Through cells
-    logicalInd = balCurr(:) >= 0;
-    balActual_dchrg = currMdl.T_dchrg * (balCurr(:) .* (logicalInd));
-    balActual_chrg = currMdl.T_chrg * (balCurr(:) .* (~logicalInd));
-    balActual = balActual_chrg + balActual_dchrg;
-    combCurr = psuCurr + balActual(:); % Actual Current in each cell
-
-end
-
-
-function newDiagMat = replaceDiag(oldDiagMat, vector, indRangeV, offset)
-%REPLACEDIAG Replaces the elements in the diag of a matrix
-%
-%oldDiagMat     The old square matrix to be modified
-%vector         The vector with values to replace
-%indRangeV      A vector containing the indices of the old matrix to
-%               replace
-%offset         The offset of the old square matrix to replace. A negative
-%               value is below the main diagonal, while positive it above
-
-if length(vector) ~= length(indRangeV)
-    error("The index range vector must have the same length as the vector" + ...
-        " to be inserted. The index range vector must contain the indices for each element of the vector");
-end
-vector = vector(:);
-
-ind = ismember(1:length(diag(oldDiagMat, offset)), indRangeV);
-ind = ind(:);
-
-newDiag = double(ind); x = 1;
-for i = indRangeV
-    newDiag(i) = vector(x);
-    x = x+1;
-end
-
-newDiagMat = (oldDiagMat .* ~diag(ind, offset)) + diag(newDiag, offset);
-
-end
 
 
 function dataQueryTimerFcn(varargin)

@@ -245,7 +245,7 @@ elseif strcmpi(caller, "cmdWindow")
             && strcmpi(testSettings.cellConfig, 'series')
         if ~exist('bal','var') ...
                 || (isvalid(bal) && strcmpi(bal.serialStatus(), "Disconnected"))
-            bal = DC2100A(balPort, eventLog);
+            bal = DC2100A(balPort, eventLog, 'Num_Cells', length(cellIDs));
         end
     end
     %--------------------------------------------------------------------------

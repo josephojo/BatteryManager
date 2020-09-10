@@ -28,22 +28,15 @@ NUMCELLS = cellData.NUMCELLS;
 
 xIND = indices.x;
 
+% Cell Current Calculation
 balCurr = u(1:NUMCELLS, 1);
 psuCurr = u(end, 1);
-
-% curr = psuCurr + balCurr;
-
-% Compute Actual Current Through cells
-logicalInd = balCurr(:) >= 0;
-balActual_dchrg = predMdl.Curr.T_dchrg * (balCurr(:) .* (logicalInd));
-balActual_chrg = predMdl.Curr.T_chrg * (balCurr(:) .* (~logicalInd));
-balActual = balActual_chrg + balActual_dchrg;
-curr = psuCurr + balActual(:); % Actual Current in each cell
+curr = combineCurrents(psuCurr, balCurr, predMdl);
 
 Tf = predMdl.Temp.Tf;
 
 prevSOC = x(xIND.SOC, 1);
-prevTemp = [x(xIND.Tc, 1), x(xIND.Ts, 1)]';
+prevTemp = [x(xIND.Tc, 1), x(xIND.Ts, 1)]'; prevTemp_flat = prevTemp(:);
 prevV1 =  x(xIND.V1, 1);
 prevV2 =  x(xIND.V2, 1);
 
@@ -51,14 +44,6 @@ prevV2 =  x(xIND.V2, 1);
 % Change in SOC as a result of series pack charging/discharging
 
 SOC = predMdl.SOC.A * prevSOC + (predMdl.SOC.B1 .* (curr(:) * dt));
-
-% soc_pack_chg = (predMdl.SOC.B1 * (u(end, 1) * dt));
-%
-% % Change in SOC as a result of balancing
-% soc_bal_chg = (predMdl.SOC.B2 * (u(1:NUMCELLS, 1) * dt));
-%
-% % Total SOC for current step
-% SOC = predMdl.SOC.A * prevSOC + (soc_bal_chg + soc_pack_chg);
 
 %% RC Voltage Updates
 % [V1, V2] = getRC_Volt(predMdl, dt, curr(:), SOC(:), mean(prevTemp)', ...
@@ -75,12 +60,15 @@ V2 = Vrc(2, :); % Voltage drop across in RC pair 2
 
 
 %% Temperature Update
-Temp = predMdl.Temp.A * prevTemp + ...
-    predMdl.Temp.B * [(curr(:)'.^2); repmat(Tf, 1, NUMCELLS)];
+input = [(curr(:)'.^2); repmat(Tf, 1, NUMCELLS)]; input = input(:);
+
+Temp = predMdl.Temp.A * prevTemp_flat + ...
+    predMdl.Temp.B * input;
+
+Temp = reshape(Temp, 2, NUMCELLS);
 
 %% Tie it off
-xk1 = [SOC; V1(:); V2(:); Temp(1, :)'; Temp(2, :)'];
-
+xk1 = [SOC; V1(:); V2(:); Temp(1, :)'; Temp(2, :)'; curr(:)];
 end
 
 function [Vrc1, Vrc2] =  getRC_Volt(mdl, dt, curr, SOC, prevTemp, prevV1, prevV2)

@@ -122,7 +122,7 @@ classdef DC2100A < handle
         % ########------------------------------------------------
         
         % Variables to control rate at which commands are sent and responses are received
-        USB_COMM_TIMER_INTERVAL = 20;            % in ms
+        USB_COMM_TIMER_INTERVAL = 25;            % in ms
         USB_COMM_CYCLE_PERIOD_DEFAULT = 360;     % in ms
         USB_COMM_TIMER_INTERVALS_PER_BOARD = 5;  % in ms
         
@@ -379,7 +379,7 @@ classdef DC2100A < handle
         USBPoolSize = 1;
         USBPool_FOut % = parallel.FevalFuture;
         USB_Async_Flag = false;
-        
+        USBPoolFeval
         
         %  *** Timer Object
         USBTimer
@@ -649,16 +649,16 @@ classdef DC2100A < handle
                         if (obj.autoRead == true)
                             dataString = DC2100A.USB_PARSER_VOLTAGE_COMMAND;
                         end
-                    elseif (obj.USB_Comm_Cycle_Counter == (floor((0.2 * DC2100A.USB_COMM_CYCLE_PERIOD_DEFAULT) / DC2100A.USB_COMM_TIMER_INTERVAL) * DC2100A.USB_COMM_TIMER_INTERVAL))
-                        if (obj.autoRead == true)
-                            dataString = DC2100A.USB_PARSER_TEMPERATURE_COMMAND;
-                        end
-                    elseif (obj.USB_Comm_Cycle_Counter == (floor((0.4 * DC2100A.USB_COMM_CYCLE_PERIOD_DEFAULT) / DC2100A.USB_COMM_TIMER_INTERVAL) * DC2100A.USB_COMM_TIMER_INTERVAL))
-                        if (obj.autoRead == true)
-                            if (obj.Temperature_ADC_Test == true)
-                                dataString = DC2100A.USB_PARSER_TEMP_ADC_COMMAND + dec2hex(obj.selectedBoard, 2);
-                            end
-                        end
+%                     elseif (obj.USB_Comm_Cycle_Counter == (floor((0.2 * DC2100A.USB_COMM_CYCLE_PERIOD_DEFAULT) / DC2100A.USB_COMM_TIMER_INTERVAL) * DC2100A.USB_COMM_TIMER_INTERVAL))
+%                         if (obj.autoRead == true)
+%                             dataString = DC2100A.USB_PARSER_TEMPERATURE_COMMAND;
+%                         end
+%                     elseif (obj.USB_Comm_Cycle_Counter == (floor((0.4 * DC2100A.USB_COMM_CYCLE_PERIOD_DEFAULT) / DC2100A.USB_COMM_TIMER_INTERVAL) * DC2100A.USB_COMM_TIMER_INTERVAL))
+%                         if (obj.autoRead == true)
+%                             if (obj.Temperature_ADC_Test == true)
+%                                 dataString = DC2100A.USB_PARSER_TEMP_ADC_COMMAND + dec2hex(obj.selectedBoard, 2);
+%                             end
+%                         end
                     elseif (obj.USB_Comm_Cycle_Counter == (floor((0.6 * DC2100A.USB_COMM_CYCLE_PERIOD_DEFAULT) / DC2100A.USB_COMM_TIMER_INTERVAL) * DC2100A.USB_COMM_TIMER_INTERVAL))
                         if obj.isTimedBalancing == true
                             dataString = DC2100A.USB_PARSER_TIMED_BALANCE_COMMAND + "R" + dec2hex(obj.selectedBoard, 2);
@@ -743,7 +743,12 @@ classdef DC2100A < handle
                     USBDataIn_Parser(obj, USB_In);
                 elseif strcmpi(s.BytesAvailableFcnMode, "terminator")
                     USB_In = char(readline(s));
-                    USBDataIn_Parser(obj, USB_In);
+                    if obj.USB_Async_Flag == true
+                        obj.USBPoolFeval = parfeval(obj.USBPool, ...
+                            @USBDataIn_Parser, 0, obj, USB_In);
+                    else
+                        USBDataIn_Parser(obj, USB_In);
+                    end
                 end
                 
                 obj.USB_Comm_Can_Receive = true;
@@ -954,7 +959,7 @@ classdef DC2100A < handle
                                     + ", write value:" + dec2hex(bitshift(temp_error_data(2), 16) + bitshift(temp_error_data(3), 8) + temp_error_data(4) , 4)...
                                     + ", read value:" + dec2hex(bitshift(temp_error_data(5), 16) + bitshift(temp_error_data(6), 8) + temp_error_data(7) , 4);
                                 
-                                obj.eventLog.Add(ErrorCode.LTC3300_FAILED_CMD_WRITE, error_string, num2str(obj.Board_Summary_Data(temp_error_data(1)).Volt_Sum, 5)); % 5 here ensures 5 sig figs
+                                obj.eventLog.Add(ErrorCode.LTC3300_FAILED_CMD_WRITE, error_string, num2str(obj.Board_Summary_Data(temp_error_data(1) +1).Volt_Sum, 5)); % 5 here ensures 5 sig figs
                                 
                             otherwise
                                 error_string = "Bytes: ";
@@ -1444,7 +1449,8 @@ classdef DC2100A < handle
                                         = obj.num_times_over_4sec + 1;
                                     obj.eventLog.Add(ErrorCode.USB_DELAYED,...
                                         num2str(obj.voltage_timestamp(board_num +1)...
-                                        .time_difference) + ":" + num2str(obj.num_times_over_4sec)); % #debugString=buffer
+                                        .time_difference) + "sec Delay : " ...
+                                        + num2str(obj.num_times_over_4sec) + " Time(s) over 4secs."); % #debugString=buffer
                                 end
                                 
                                 if obj.voltage_timestamp(board_num +1).time_difference...
@@ -2291,7 +2297,7 @@ classdef DC2100A < handle
                 obj.USB_Async_Flag = param.USB_ASYNC;
                 if obj.USB_Async_Flag == true
                     if isempty(gcp('nocreate'))
-                        obj.USBPool = parpool(obj.USBPoolSize);
+                        obj.USBPool = parpool('threads');
                     else
                         obj.USBPool = gcp('nocreate');
                     end
@@ -3250,15 +3256,17 @@ classdef DC2100A < handle
                 end
                 
                 % Check to see if the DC2100A board is connected
-                [status, ModelNum] = getModelNum(obj);
-                if status == ErrorCode.COMMTEST_DATA_MISMATCH
-                    error("There has been a data mismatch when testing communication with FW.");
-                elseif status == ErrorCode.COMM_DC2100A_NOT_DETECTED
-                    error("The **DC2100A BOARD** is either not connected or not communicating.");
-                elseif status == ErrorCode.COMM_TIMEOUT
-                    warning("There has been a TIMEOUT while trying to read Model_Num");
-                elseif status == ErrorCode.NO_ERROR
-                    disp("Model Num Confirmed. Test String = '" + ModelNum + "'");
+                % ## This is a wrong way to confirm this since it is
+                % ## burning through EEProm calls. Need to find another way
+%                 [status, ModelNum] = getModelNum(obj);
+%                 if status == ErrorCode.COMMTEST_DATA_MISMATCH
+%                     error("There has been a data mismatch when testing communication with FW.");
+% %                 elseif status == ErrorCode.COMM_DC2100A_NOT_DETECTED
+% %                     error("The **DC2100A BOARD** is either not connected or not communicating.");
+%                 elseif status == ErrorCode.COMM_TIMEOUT
+%                     warning("There has been a TIMEOUT while trying to read Model_Num");
+%                 elseif status == ErrorCode.NO_ERROR
+%                     disp("Model Num Confirmed. Test String = '" + ModelNum + "'");
                     obj = System_Init(obj, true);
                     
                     if obj.useUSBTerminator == false
@@ -3276,12 +3284,17 @@ classdef DC2100A < handle
                     obj.USBTimer.StopFcn = @obj.USBTimerStopped;
                     obj.USBTimer.TimerFcn = @obj.USBDataOut_Timer_Callback;
                     obj.USBTimer.ErrorFcn = {@obj.Handle_Exception, []};
-                    % Start COMM out timer
-                    start(obj.USBTimer);
                     
-                else
-                    disp("Returned Error from getModelNum = " + status);
-                end
+                    % Start COMM out timer
+%                     if obj.USB_Async_Flag == true
+%                         obj.USBPoolFeval = parfeval(obj.USBPool, @start, 0, obj.USBTimer);
+%                     else
+                        start(obj.USBTimer);
+%                     end
+                    
+%                 else
+%                     disp("Returned Error from getModelNum = " + status);
+%                 end
                 
                 reply = "Connected";
                 
@@ -3311,6 +3324,12 @@ classdef DC2100A < handle
                     delete(obj.USBTimer);
                 end
             end
+            
+%             if obj.USB_Async_Flag == true
+%                if ~isempty(obj.USBPoolFeval) 
+%                    
+%                end
+%             end
             
             if ~isnumeric(obj.serial)
                 availBytes = obj.serial.NumBytesAvailable;

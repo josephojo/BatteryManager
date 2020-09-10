@@ -25,7 +25,7 @@ predMdl     = p2;   % Predictive Battery Model Structure
 cellData    = p3;   % Constant Cell Data
 indices     = p4;   % Indices for the STATES (x) and OUTPUTS (y) presented as a struts
 
-NUMCELLS = cellData.NUMCELLS;
+% NUMCELLS = cellData.NUMCELLS;
 % cap = cellData.CAP; % Capacity of all cells
 
 xIND = indices.x;
@@ -46,17 +46,12 @@ T_avg = (Tc + Ts)/2;
 % y(yIND.SOC, 1) = SOC;
 y(yIND.Ts, 1) = Ts;
 
-balCurr = u(1:NUMCELLS, 1);
-psuCurr = u(end, 1);
+% % Cell Current Calculation
+% balCurr = u(1:NUMCELLS, 1);
+% psuCurr = u(end, 1);
+% curr = combineCurrents(psuCurr, balCurr, predMdl)
 
-% curr = balCurr + psuCurr; 
-
-% % Compute Actual Current Through cells
-logicalInd = balCurr(:) >= 0;
-balActual_dchrg = predMdl.Curr.T_dchrg * (balCurr(:) .* (logicalInd));
-balActual_chrg = predMdl.Curr.T_chrg * (balCurr(:) .* (~logicalInd));
-balActual = balActual_chrg + balActual_dchrg;
-curr = psuCurr + balActual(:); % Actual Current in each cell
+curr = x(xIND.Curr);
 
 
 % Useful for when model has changing Rs wrt temp and SOC
@@ -69,6 +64,21 @@ OCV = lookup1D(predMdl.Volt.SOC, predMdl.Volt.OCV, SOC(:));
 Vt = OCV(:) - V1 - V2 -(curr .* predMdl.Volt.Rs); 
 
 y(yIND.Volt, 1) = Vt(:);
+
+%% Li Plate Rate (LPR) Update
+LPRind = curr < 0;
+interpCurr = curr .* (LPRind);
+
+% Interpolates the LPR value if the exact value isn't present in the table
+LPR = qinterp2(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
+                interpCurr, x(xIND.SOC, 1));
+            
+% % Finds closest value that works for the input            
+% LPR = lookup2D(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
+%                 interpCurr, x(xIND.SOC, 1));
+% LPR = reshape(LPR, size(curr));
+
+y(yIND.LPR, 1) = LPR(:); 
 
 end
 
