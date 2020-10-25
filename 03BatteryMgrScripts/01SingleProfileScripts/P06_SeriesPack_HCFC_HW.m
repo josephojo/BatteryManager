@@ -102,25 +102,31 @@ try
 %     MAX_BAL_CURR = VPLM_Curr_Ratio * bal.EEPROM_Data(1, 1).Discharge_Currents(logical(bal.cellPresent(1, :))) ...
 %             / DC2100A.MA_PER_A;
 
-    MIN_BAL_CURR = [-1.165, -1.271, -1.244, -1.179]';
-    MAX_BAL_CURR = [2.000, 1.878, 1.883, 1.866]';
+%     MIN_BAL_CURR = [-1.165, -1.271, -1.244, -1.179]';
+%     MAX_BAL_CURR = [2.000, 1.878, 1.883, 1.866]';
+    MIN_BAL_CURR = [-0.5, -0.5, -0.5, -0.5]';
+    MAX_BAL_CURR = [0.5, 0.5, 0.5, 0.5]';
 
 catch ME
     script_handleException;
 end   
 
 MAX_CELL_CURR = batteryParam.maxCurr(cellIDs);
+MIN_CELL_CURR = batteryParam.minCurr(cellIDs);
 MAX_CHRG_VOLT = batteryParam.chargedVolt(cellIDs);
 MIN_DCHRG_VOLT = batteryParam.dischargedVolt(cellIDs);
 MAX_CELL_VOLT = batteryParam.maxVolt(cellIDs);
 MIN_CELL_VOLT = batteryParam.minVolt(cellIDs);
 MAX_BAL_SOC = 0.80; % Maximum SOC that that balancers will be active and the mpc will optimize for balance currents
 MIN_BAL_SOC = 0.25; % Minimum SOC that that balancers will be active and the mpc will optimize for balance currents
+ALLOWABLE_SOCDEV = 0.01;
+MIN_PSUCURR_4_BAL = -1.0; % The largest amount of current to use while balancing
 
 % battery capacity
 CAP = batteryParam.capacity(cellIDs);  % battery capacity
 
 cellData.NUMCELLS = NUMCELLS;
+cellData.MAX_BAL_CURR = MAX_BAL_CURR;
 cellData.MAX_BAL_CURR = MAX_BAL_CURR;
 cellData.MIN_BAL_CURR = MIN_BAL_CURR;
 cellData.MAX_CELL_CURR = MAX_CELL_CURR;
@@ -129,6 +135,7 @@ cellData.MIN_DCHRG_VOLT = MIN_DCHRG_VOLT;
 cellData.MAX_BAL_SOC = MAX_BAL_SOC;
 cellData.MIN_BAL_SOC = MIN_BAL_SOC;
 cellData.CAP = CAP;
+cellData.ALLOWABLE_SOCDEV = ALLOWABLE_SOCDEV;
 
 
 xSOC    = 1;
@@ -420,12 +427,12 @@ try
     % Add Manipulated variable constraints
     % Small Rates affect speed a lot
     for i = 1:NUMCELLS
-        mpcObj.MV(i).Max =  MAX_BAL_CURR;      mpcObj.MV(i).RateMax =  2.0; % MAX_CELL_CURR;
+        mpcObj.MV(i).Max =  MAX_BAL_CURR;      mpcObj.MV(i).RateMax =  0.5; % MAX_CELL_CURR;
         mpcObj.MV(i).Min =  MIN_BAL_CURR;     mpcObj.MV(i).RateMin = -0.5; % -2; % -6
     end
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;
-    mpcObj.MV(NUMCELLS + 1).Min =  -1; % -0.5; % (MAX_CELL_CURR - MAX_BAL_CURR);
+    mpcObj.MV(NUMCELLS + 1).Min =  MIN_PSUCURR_4_BAL; % (MAX_CELL_CURR - MAX_BAL_CURR);
     mpcObj.MV(NUMCELLS + 1).RateMax =  2; % MAX_CELL_CURR;
     mpcObj.MV(NUMCELLS + 1).RateMin = -2; % -6
     
@@ -540,7 +547,7 @@ zCov = [4.24849699398227e-09;3.08216432866192e-09;4.52248496993420e-09;1.8697795
     0.001; 0.001; 0.001; 0.001 ]; % 1e-10; 1e-10; 1e-10; 1e-10];
 % zCov = repmat([0.08, 0.01], NUMCELLS, 1); % Measurement Noise covariance (assuming no cross correlation) % [0.02, 0.08, 0.01] 
 ekf.MeasurementNoise = diag(zCov(:));
-pCov = repmat([0.02, 0.005, 0.007, 0.05, 0.05, 0.001], NUMCELLS, 1);
+pCov = repmat([0.08, 0.02, 0.02, 0.05, 0.05, 0.01], NUMCELLS, 1);
 ekf.ProcessNoise = diag(pCov(:));
 % ekf.ProcessNoise = 0.07;
 
@@ -554,6 +561,9 @@ mpcTimer = tic;
 mpcRunning = false;
 poolState = 'finished';
 
+% ONLY_CHRG_FLAG = true;
+ONLY_CHRG_FLAG = false;
+
 try     
     testingData.xk = []; testingData.u = []; testingData.y = []; testingData.CellCurr = [];
     testingData.xk(end + 1, :) = xk(:)';
@@ -562,17 +572,23 @@ try
     testingData.y(end + 1, :) = y(:)';
     testingData.u(end + 1, :) = u(:)';
     testingData.CellCurr(end + 1, :) = cells.curr(cellIDs);
-    
-    if (max(battData.SOC(end, :) > MAX_BAL_SOC) ...
-            || min(battData.SOC(end, :) < MIN_BAL_SOC))
-        BalanceCellsFlag = false; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
+    if ONLY_CHRG_FLAG == false
+        if (max(battData.SOC(end, :) > MAX_BAL_SOC) ...
+                || min(battData.SOC(end, :) < MIN_BAL_SOC))
+            BalanceCellsFlag = false; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
+            predMdl.Curr.balWeight = 0;
+            p2 = predMdl;
+            options.Parameters = {p1, p2, p3, p4};
+        elseif max(battData.SOC(end, :) < MAX_BAL_SOC) ...
+                && min(battData.SOC(end, :) > MIN_BAL_SOC)
+            BalanceCellsFlag = true; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
+            predMdl.Curr.balWeight = 1;
+        end
+    else
+        BalanceCellsFlag = false; % Flag to set when SOC is greater than limit for balancing
         predMdl.Curr.balWeight = 0;
         p2 = predMdl;
         options.Parameters = {p1, p2, p3, p4};
-    elseif max(battData.SOC(end, :) < MAX_BAL_SOC) ...
-            && min(battData.SOC(end, :) > MIN_BAL_SOC)
-        BalanceCellsFlag = true; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
-        predMdl.Curr.balWeight = 1;
     end
 
     sTime = [];readTime = [];
@@ -598,7 +614,13 @@ try
                 
             % Update Observation (Volt, Ts)
             y_Ts = thermoData(2:end);
-            y = [ reshape(cells.volt(cellIDs), 1, []),  y_Ts(:)', LPR(:)'];
+            if length(battTS.Data(:, 1)) > 4
+                y_Volt = mean(battTS.Data(end-3:end, 5:8), 1); % average 1s worth of voltage data
+            else
+                y_Volt = reshape(cells.volt(cellIDs), 1, []);
+            end
+%             y = [ reshape(cells.volt(cellIDs), 1, []),  y_Ts(:)', LPR(:)'];
+            y = [ y_Volt(:)',  y_Ts(:)', LPR(:)'];            
             testingData.y(end + 1, :) = y(:)';
             
 %             % Check if the balancer is still running, if not set currents
@@ -619,6 +641,38 @@ try
             xk = CorrectedState';
             xk = xk(:);
             testingData.xk(end + 1, :) = xk(:)';
+            
+            % Disable Balancing if SOC is past range 
+            % or if SOC deviation if less than threshold. 
+            % MPC won't optimize for Balance currents past this range
+            if ONLY_CHRG_FLAG == false
+                if (max(battData.SOC(end, :) > MAX_BAL_SOC) ...
+                        || min(battData.SOC(end, :) < MIN_BAL_SOC)) ...
+                        || abs( max(xk(xIND.SOC)) - min(xk(xIND.SOC)) ) < ALLOWABLE_SOCDEV
+                    
+                    BalanceCellsFlag = false;
+                    predMdl.Curr.balWeight = 0;
+                    p2 = predMdl;
+                    options.Parameters = {p1, p2, p3, p4};
+                    u = [zeros(NUMCELLS, 1); u(end)];
+                    mpcObj.MV(NUMCELLS + 1).Min = min(MIN_CELL_CURR);
+                    
+                elseif max(battData.SOC(end, :) < MAX_BAL_SOC) ...
+                        && min(battData.SOC(end, :) > MIN_BAL_SOC) ...
+                        && (max(abs(predMdl.SOC.devMat * xk(xIND.SOC))) >= ALLOWABLE_SOCDEV)
+                    
+                    BalanceCellsFlag = true;
+                    predMdl.Curr.balWeight = 1;
+                    p2 = predMdl;
+                    options.Parameters = {p1, p2, p3, p4};
+                    mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(battData.SOC(end, :));
+                end
+                
+                if BalanceCellsFlag == true
+                    mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(battData.SOC(end, :));
+                end
+            end
+            
             
             % Run the MPC controller
             if USE_PARALLEL == true
@@ -671,31 +725,6 @@ try
                     bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = zeros(size(balCurr));
                 end
                 
-                %{
-                % Collect Measurements
-                wait(0.1); % Wait for 100ms for the pack to respond to the applied currents
-                script_queryData;
-                script_failSafes; %Run FailSafe Checks
-                script_checkGUICmd; % Check to see if there are any commands from GUI
-                % if limits are reached, break loop
-                if errorCode == 1 || strcmpi(testStatus, "stop")
-                    script_idle;
-                end
-                
-                y_Ts = thermoData(2:end);
-                y = [ reshape(cells.volt(cellIDs), 1, []),  y_Ts(:)' ];
-                
-                % Kalman filter plant measurements to get the hidden model states
-                % Predict Step
-                [PredictedState,PredictedStateCovariance] = predict(ekf, u, options.Parameters{:});
-                
-                % Correct Step
-                [CorrectedState,CorrectedStateCovariance] = correct(ekf, y(:), u, options.Parameters{:});
-                
-                xk = CorrectedState';
-                xk = xk(:);
-                %}
-                
                 tElapsed_plant = toc(testTimer);
                 sTime = [sTime; actual_STime]; 
                 
@@ -703,6 +732,9 @@ try
                 % matrix
                 combCurr = combineCurrents(optPSUCurr, balCurr, predMdl);
                 
+                wait(0.05);
+                
+                script_queryData;
                 y_Ts = thermoData(2:end);
                 
                 LPRind = reshape(cells.curr(cellIDs), [], 1) < 0;
@@ -753,35 +785,18 @@ try
                 fprintf(timingStr + newline);
                 
                 fprintf(tempStr + newline);
-                fprintf("\t"); disp(mdl_Y(yIND.Volt))
+                fprintf("y(Volt) =\t"); disp(mdl_Y(yIND.Volt))
                 fprintf(voltStr + newline);
                 fprintf(LPRStr + newline);
                 fprintf(psuStr + newline);
                 fprintf(balStr + newline);
                 fprintf(MPCStr + newline);
                 fprintf(currStr + newline);
+                fprintf("xk(SOC) =\t"); disp(xk(xIND.SOC)')
                 fprintf(socStr);
                 
                 prevElapsed = tElapsed_plant;
                 
-                
-                % Disable Balancing if SOC is past range. MPC won't optimize
-                % for Balance currents past this range
-                if (max(battData.SOC(end, :) > MAX_BAL_SOC) ...
-                    || min(battData.SOC(end, :) < MIN_BAL_SOC)) % && BalanceCellsFlag == true
-                    BalanceCellsFlag = false;
-                    predMdl.Curr.balWeight = 0;
-                    p2 = predMdl;
-                    options.Parameters = {p1, p2, p3, p4};
-                    u = [zeros(NUMCELLS, 1); u(end)]; 
-                elseif max(battData.SOC(end, :) < MAX_BAL_SOC) ...
-                    && min(battData.SOC(end, :) > MIN_BAL_SOC) % && BalanceCellsFlag == false
-                    BalanceCellsFlag = true;
-                    predMdl.Curr.balWeight = 1;
-                    p2 = predMdl;
-                    options.Parameters = {p1, p2, p3, p4};
-                end
-
             end
         end
 
@@ -912,10 +927,10 @@ socDev = devMat * chrgSOC';
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Objective Function Weights (0, 1, 5, 20 etc))
 % ---------------------------------------------------------------------
-A = 20; % SOC Tracking
+A = 100; % SOC Tracking
 % If SOC is past the set balance SOC range, then don't let the SOC dev
 % affect the cost function.
-A_dev = 50 * predMdl.Curr.balWeight; 
+A_dev = 200 * predMdl.Curr.balWeight; 
 B = 2; % Chg Time
 C = 1; % Temp Rise rate
 D = 5; % Li Plate Rate
