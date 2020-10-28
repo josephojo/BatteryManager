@@ -65,20 +65,20 @@ Vt = OCV(:) - V1 - V2 -(curr .* predMdl.Volt.Rs);
 
 y(yIND.Volt, 1) = Vt(:);
 
-%% Li Plate Rate (LPR) Update
-LPRind = curr < 0;
-interpCurr = curr .* (LPRind);
+%% Anode Potential (ANPOT) Update
+ANPOTind = curr < 0;
+interpCurr = curr .* (ANPOTind);
 
-% Interpolates the LPR value if the exact value isn't present in the table
-LPR = qinterp2(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
+% Interpolates the ANPOT value if the exact value isn't present in the table
+ANPOT = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
                 interpCurr, x(xIND.SOC, 1));
             
 % % Finds closest value that works for the input            
-% LPR = lookup2D(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
+% ANPOT = lookup2D(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
 %                 interpCurr, x(xIND.SOC, 1));
-% LPR = reshape(LPR, size(curr));
+% ANPOT = reshape(ANPOT, size(curr));
 
-y(yIND.LPR, 1) = LPR(:); 
+y(yIND.ANPOT, 1) = ANPOT(:); 
 
 end
 

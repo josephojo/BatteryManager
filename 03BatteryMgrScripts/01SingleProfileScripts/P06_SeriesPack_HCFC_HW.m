@@ -85,8 +85,8 @@ sampleTime = 5; % 0.5; % Sample time [s]
 readPeriod = 0.25; % How often to read from plant
 prevTime = 0; prevElapsed = 0;
 
-USE_PARALLEL = true;
-% USE_PARALLEL = false;
+% USE_PARALLEL = true;
+USE_PARALLEL = false;
 
 % Info from MCU (Low Level Controller)
 VPLM_ON_PERIOD = 1;
@@ -121,6 +121,7 @@ MAX_BAL_SOC = 0.80; % Maximum SOC that that balancers will be active and the mpc
 MIN_BAL_SOC = 0.25; % Minimum SOC that that balancers will be active and the mpc will optimize for balance currents
 ALLOWABLE_SOCDEV = 0.01;
 MIN_PSUCURR_4_BAL = -1.0; % The largest amount of current to use while balancing
+RATED_CAP = 3.35;
 
 % battery capacity
 CAP = batteryParam.capacity(cellIDs);  % battery capacity
@@ -147,7 +148,7 @@ xCurr   = 6;
 
 yVolt   = 1;
 yTs     = 2;
-yLPR    = 3;
+yANPOT    = 3;
 
 xIND.SOC    = 1+(xSOC-1)*NUMCELLS:xSOC*NUMCELLS;
 xIND.V1     = 1+(xV1-1)*NUMCELLS:xV1*NUMCELLS;
@@ -158,14 +159,14 @@ xIND.Curr   = 1+(xCurr-1)*NUMCELLS:xCurr*NUMCELLS; % Passing the curr back in to
 
 yIND.Volt   = 1+(yVolt-1)*NUMCELLS:yVolt*NUMCELLS;
 yIND.Ts     = 1+(yTs-1)*NUMCELLS:yTs*NUMCELLS;
-yIND.LPR    = 1+(yLPR-1)*NUMCELLS:yLPR*NUMCELLS;
+yIND.ANPOT    = 1+(yANPOT-1)*NUMCELLS:yANPOT*NUMCELLS;
 
 indices.x = xIND;
 indices.y = yIND;
 
 
 TARGET_SOC = 0.85; %0.98;
-LPR_Target = 50;
+ANPOT_Target = -0.1;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
 
 % Balance Efficiencies
 chrgEff = 0.774; 
@@ -187,7 +188,7 @@ indices.nu = nu;
 %% Predictive Model
 try
     % ######## Voltage Model ########
-    load(dataLocation + '008OCV_AB1_Rev3.mat', 'OCV', 'SOC'); % Lithium plating rate
+    load(dataLocation + '008OCV_AB1_Rev3.mat', 'OCV', 'SOC'); 
     
     % Previously used parameters
 %     C1 = 33.563;
@@ -338,18 +339,17 @@ try
     currMdl.T_dchrg = T_dchrg;
     currMdl.balWeight = 1; % Whether or not to use the balancing currents during optimization
     
-    % Lithium Plating Lookup table (From "LiPlateRate.mat")
-    load(dataLocation + 'LiPlateRate.mat'); % Lithium plating rate
-    [Xmesh, Ymesh] = meshgrid(LiPlateCurr, LiPlateSOC);
-    lprMdl.Curr = Xmesh;
-    lprMdl.SOC = Ymesh;
-    lprMdl.LPR = LiPlateRate;
+    % Anode Potential (indirectly Lithium Plating) Lookup table (From "01_INR18650F1L_AnodeMapData.mat")
+    load(dataLocation + '01_INR18650F1L_AnodeMapData.mat'); % Lithium plating rate
+    anPotMdl.Curr = cRate_mesh * RATED_CAP;
+    anPotMdl.SOC = soc_mesh;
+    anPotMdl.ANPOT = mesh_anodeGap;
     
     predMdl.Volt = voltMdl;
     predMdl.Temp = tempMdl;
     predMdl.SOC = socMdl;
     predMdl.Curr = currMdl;
-    predMdl.LPR = lprMdl;
+    predMdl.ANPOT = anPotMdl;
     % predMdl.lookupTbl = battMdl.Lookup_tbl; % Using the lookup table from plant model
 catch ME
     script_handleException;
@@ -375,18 +375,21 @@ battData.Tc             = thermoData(2:end);    % Initialize core temperature to
 battData.Tf             = Tf;                   % Ambient Temp
 battData.volt           = cells.volt(cellIDs)';
 battData.curr           = cells.curr(cellIDs)'; % zeros(1, NUMCELLS);
-battData.LiPlateRate    = zeros(1, NUMCELLS);
-LPR = battData.LiPlateRate;
+
 
 % initialSOCs = cells.SOC(cellIDs); % Using the saved cell SOC from previous run
 % Using OCV vs SOC to initialize the cell SOCs based on their resting voltages
 [~, minIndSOC] = min(  abs( OCV - cells.volt(cellIDs)' )  );
-initialSOCs = SOC(minIndSOC, 1); 
+% initialSOCs = SOC(minIndSOC, 1); 
+initialSOCs = [0.504; 0.5466; 0.5933; 0.546];
 cells.prevSOC(cellIDs) = initialSOCs;
 prevSOC = mean(initialSOCs);
 
 battData.SOC            = initialSOCs(1:NUMCELLS, 1)';
 battData.Cap            = CAP;
+battData.AnodePot       = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
+                            zeros(NUMCELLS, 1), initialSOCs)';
+ANPOT = battData.AnodePot;
 
 battData.Cost = 0;
 battData.timeLeft = zeros(1, NUMCELLS);
@@ -447,12 +450,12 @@ try
         mpcObj.States(i + (xTs-1) * NUMCELLS).Min =  0;
         mpcObj.States(i + (xTs-1) * NUMCELLS).ScaleFactor =  44;
         
-        % LPR
-        mpcObj.OV(i + (yLPR-1) * NUMCELLS).Max =  LPR_Target;
-        mpcObj.OV(i + (yLPR-1) * NUMCELLS).Min =  0;
-        mpcObj.OV(i + (yLPR-1) * NUMCELLS).ScaleFactor =  300;
-        mpcObj.OV(i + (yLPR-1) * NUMCELLS).MinECR =  0;
-        mpcObj.OV(i + (yLPR-1) * NUMCELLS).MaxECR =  0;
+        % ANPOT
+%         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Max =  inf;
+        mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Min =  ANPOT_Target;
+        mpcObj.OV(i + (yANPOT-1) * NUMCELLS).ScaleFactor =  1;
+        mpcObj.OV(i + (yANPOT-1) * NUMCELLS).MinECR =  0;
+        mpcObj.OV(i + (yANPOT-1) * NUMCELLS).MaxECR =  0;
     
     end
     
@@ -462,13 +465,13 @@ try
     % Add dynamic model for nonlinear MPC
     mpcObj.Model.StateFcn = @(x, u, p1, p2, p3, p4)...
         P06_BattStateFcn_HW(x, u, p1, p2, p3, p4);
-    mpcObj.Jacobian.StateFcn = @(x,u,p1, p2, p3, p4) ...
-        myStateJacobian(x, u, p1, p2, p3, p4);
+%     mpcObj.Jacobian.StateFcn = @(x,u,p1, p2, p3, p4) ...
+%         myStateJacobian(x, u, p1, p2, p3, p4);
     
     mpcObj.Model.OutputFcn = @(x,u, p1, p2, p3, p4) ...
         P06_OutputFcn_HW(x, u, p1, p2, p3, p4); % SOC, Volt, Ts
-    mpcObj.Jacobian.OutputFcn = @(x,u,p1, p2, p3, p4) ... 
-        myOutputJacobian(x, u, p1, p2, p3, p4);
+%     mpcObj.Jacobian.OutputFcn = @(x,u,p1, p2, p3, p4) ... 
+%         myOutputJacobian(x, u, p1, p2, p3, p4);
     
     mpcObj.Optimization.CustomCostFcn = @(X,U,e,data, p1, p2, p3, p4)...
         myCostFunction(X, U, e, data, p1, p2, p3, p4);
@@ -492,8 +495,8 @@ try
     
     mpcinfo = [];
     
-    % SOC tracking, LPR tracking, and temp rise rate cuz refs have to equal number of outputs
-    references = [repmat(TARGET_SOC, 1, NUMCELLS), repmat(LPR_Target, 1, NUMCELLS),... % ]; %
+    % SOC tracking, ANPOT tracking, and temp rise rate cuz refs have to equal number of outputs
+    references = [repmat(TARGET_SOC, 1, NUMCELLS), repmat(ANPOT_Target, 1, NUMCELLS),... % ]; %
          repmat(3, 1, NUMCELLS)];
     
     u0 = [battData.balCurr, battData.optPSUCurr];
@@ -544,10 +547,10 @@ zCov = diag(obsvCov);
 
 zCov = [4.24849699398227e-09;3.08216432866192e-09;4.52248496993420e-09;1.86977955912091e-09;...
     0.000118797595190384; 0.00142701402805615; 0; 0.00124933867735475; ...
-    0.001; 0.001; 0.001; 0.001 ]; % 1e-10; 1e-10; 1e-10; 1e-10];
+    0.0001; 0.0001; 0.0001; 0.0001 ]; % 1e-10; 1e-10; 1e-10; 1e-10];
 % zCov = repmat([0.08, 0.01], NUMCELLS, 1); % Measurement Noise covariance (assuming no cross correlation) % [0.02, 0.08, 0.01] 
 ekf.MeasurementNoise = diag(zCov(:));
-pCov = repmat([0.08, 0.02, 0.02, 0.05, 0.05, 0.01], NUMCELLS, 1);
+pCov = repmat([0.002, 0.005, 0.007, 0.05, 0.05, 0], NUMCELLS, 1);
 ekf.ProcessNoise = diag(pCov(:));
 % ekf.ProcessNoise = 0.07;
 
@@ -568,7 +571,7 @@ try
     testingData.xk = []; testingData.u = []; testingData.y = []; testingData.CellCurr = [];
     testingData.xk(end + 1, :) = xk(:)';
     y_Ts = thermoData(2:end);
-    y = [ reshape(cells.volt(cellIDs), 1, []),  y_Ts(:)', LPR(:)'];
+    y = [ reshape(cells.volt(cellIDs), 1, []),  y_Ts(:)', ANPOT(:)'];
     testingData.y(end + 1, :) = y(:)';
     testingData.u(end + 1, :) = u(:)';
     testingData.CellCurr(end + 1, :) = cells.curr(cellIDs);
@@ -603,12 +606,12 @@ try
 
             idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MAX_CELL_CURR));
             SOC_Target = xk(xIND.SOC) + (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC - xk(xIND.SOC, 1));
-            references = [SOC_Target(:)', repmat(LPR_Target, 1, NUMCELLS),... % ]; %
+            references = [SOC_Target(:)', repmat(ANPOT_Target, 1, NUMCELLS),... % ]; %
                             repmat(3, 1, NUMCELLS)]; 
             
-            LPRind = reshape(cells.curr(cellIDs), [], 1) < 0;
-            interpCurr = reshape(cells.curr(cellIDs), [], 1) .* (LPRind);
-            LPR = qinterp2(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
+            ANPOTind = reshape(cells.curr(cellIDs), [], 1) < 0;
+            interpCurr = reshape(cells.curr(cellIDs), [], 1) .* (ANPOTind);
+            ANPOT = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
                interpCurr , reshape(cells.SOC(cellIDs), [], 1) );
             testingData.CellCurr(end + 1, :) = cells.curr(cellIDs);
                 
@@ -619,8 +622,8 @@ try
             else
                 y_Volt = reshape(cells.volt(cellIDs), 1, []);
             end
-%             y = [ reshape(cells.volt(cellIDs), 1, []),  y_Ts(:)', LPR(:)'];
-            y = [ y_Volt(:)',  y_Ts(:)', LPR(:)'];            
+%             y = [ reshape(cells.volt(cellIDs), 1, []),  y_Ts(:)', ANPOT(:)'];
+            y = [ y_Volt(:)',  y_Ts(:)', ANPOT(:)'];            
             testingData.y(end + 1, :) = y(:)';
             
 %             % Check if the balancer is still running, if not set currents
@@ -737,9 +740,9 @@ try
                 script_queryData;
                 y_Ts = thermoData(2:end);
                 
-                LPRind = reshape(cells.curr(cellIDs), [], 1) < 0;
-                interpCurr = reshape(cells.curr(cellIDs), [], 1) .* (LPRind);
-                LPR = qinterp2(-predMdl.LPR.Curr, predMdl.LPR.SOC, predMdl.LPR.LPR,...
+                ANPOTind = reshape(cells.curr(cellIDs), [], 1) < 0;
+                interpCurr = reshape(cells.curr(cellIDs), [], 1) .* (ANPOTind);
+                ANPOT = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
                    interpCurr , reshape(cells.SOC(cellIDs), [], 1) );
                 
                 battData.time           = [battData.time        ; tElapsed_plant   ]; ind = 1;
@@ -747,20 +750,20 @@ try
                 battData.curr           = [battData.curr        ; reshape(cells.curr(cellIDs), 1, [])]; ind = ind + 1;
                 battData.SOC            = [battData.SOC         ; reshape(cells.SOC(cellIDs), 1, [])]; ind = ind + 1;
                 battData.Ts             = [battData.Ts          ; y_Ts(:)']; ind = ind + 1;
-                battData.LiPlateRate    = [battData.LiPlateRate ; LPR(:)']; ind = ind + 1;
+                battData.AnodePot       = [battData.AnodePot ; ANPOT(:)']; ind = ind + 1;
                 battData.Cost           = [battData.Cost ; cost];
                 battData.Iters          = [battData.Iters ; iters];
                 battData.ExitFlag       = [battData.ExitFlag ; mpcinfo.ExitFlag];
                 
                 
                 tempStr = ""; voltStr = ""; currStr = ""; socStr = ""; psuStr = "";  balStr = "";
-                MPCStr = ""; LPRStr = "";
+                MPCStr = ""; ANPOTStr = "";
                 MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\t\tIters = %d\n", mpcinfo.ExitFlag, cost, iters);
                 
                 for i = 1:NUMCELLS-1
                     tempStr = tempStr + sprintf("Ts%d = %.2f ºC\t\t" , i, battData.Ts(end,i));
                     voltStr = voltStr + sprintf("Volt %d = %.4f V\t", i, battData.volt(end,i));
-                    LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\t", i, battData.LiPlateRate(end,i));
+                    ANPOTStr = ANPOTStr + sprintf("ANPOT %d = %.3f A/m^2\t", i, battData.AnodePot(end,i));
                     balStr = balStr + sprintf("Bal %d = %.4f A\t", i, battData.balCurr(end,i));
                     currStr = currStr + sprintf("Curr %d = %.4f\t", i, battData.curr(end,i));
                     socStr = socStr + sprintf("SOC %d = %.4f\t\t", i, battData.SOC(end, i));
@@ -769,7 +772,7 @@ try
                 for i = i+1:NUMCELLS
                     tempStr = tempStr + sprintf("Ts %d = %.2f ºC\n" , i, battData.Ts(end,i));
                     voltStr = voltStr + sprintf("Volt %d = %.4f V\n", i, battData.volt(end,i));
-                    LPRStr = LPRStr + sprintf("LPR %d = %.3f A/m^2\n", i, battData.LiPlateRate(end,i));
+                    ANPOTStr = ANPOTStr + sprintf("ANPOT %d = %.3f A/m^2\n", i, battData.AnodePot(end,i));
                     balStr = balStr + sprintf("Bal %d = %.4f A\n", i, battData.balCurr(end,i));
                     currStr = currStr + sprintf("Curr %d = %.4f\n", i, battData.curr(end,i));
                     socStr = socStr + sprintf("SOC %d = %.4f\n", i, battData.SOC(end, i));
@@ -787,7 +790,7 @@ try
                 fprintf(tempStr + newline);
                 fprintf("y(Volt) =\t"); disp(mdl_Y(yIND.Volt))
                 fprintf(voltStr + newline);
-                fprintf(LPRStr + newline);
+                fprintf(ANPOTStr + newline);
                 fprintf(psuStr + newline);
                 fprintf(balStr + newline);
                 fprintf(MPCStr + newline);
@@ -832,6 +835,9 @@ try
     end
     script_resetDevices;
     disp("Test Completed After: " + tElapsed_plant + " seconds.")
+    % Save Battery Parameters
+    save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+    save(dataLocation + "007PackParam.mat", 'packParam');
 
 catch ME
 %     dataQueryTimerStopped();
@@ -876,7 +882,7 @@ curr = psuCurr + (predMdl.Curr.balWeight*balActual'); % Actual Current in each c
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Get the Objective vectors in pred horizon (2:p+1)
-% ( SOC, SOCdev, Chg Time, Temp. Rate, Li Plate Rate)
+% ( SOC, SOCdev, Chg Time, Temp. Rate, Anode Potential)
 % --------------------------------------------------------------------------------
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%  Charge SOC  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -908,20 +914,20 @@ socDev = devMat * chrgSOC';
     tempRate = futureTs - currentTs; % Sum each column (i.e. each value in pred horizon)
 %}
 
-% %%%%%%%%%%%%%%%%%%%%%%%  Li Plate Rate   %%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%  Anode Potential   %%%%%%%%%%%%%%%%%%%%%%%%%%
 %{
     curr = X(2:p+1, xIND.Curr);
-    lprMdl = predMdl.LPR;
-    LPRind = curr < 0;
-    interpCurr = curr .* (LPRind);
-    LiPlateRate = qinterp2(-lprMdl.Curr, lprMdl.SOC, lprMdl.LPR,...
+    anPotMdl = predMdl.ANPOT;
+    ANPOTind = curr < 0;
+    interpCurr = curr .* (ANPOTind);
+    AnodePot = qinterp2(-anPotMdl.Curr, anPotMdl.SOC, anPotMdl.ANPOT,...
                     interpCurr, X(2:p+1, xIND.SOC));
     
-%     LiPlateRate = lookup2D(-lprMdl.Curr, lprMdl.SOC, lprMdl.LPR,...
+%     AnodePot = lookup2D(-anPotMdl.Curr, anPotMdl.SOC, anPotMdl.ANPOT,...
 %                     interpCurr, X(2:p+1, xIND.SOC));
-%     LiPlateRate = reshape(LiPlateRate, size(curr));
+%     AnodePot = reshape(AnodePot, size(curr));
 %}
-% LiPlateRate = X(2:p+1, xIND.LPR);
+% AnodePot = X(2:p+1, xIND.ANPOT);
 
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -933,7 +939,7 @@ A = 100; % SOC Tracking
 A_dev = 200 * predMdl.Curr.balWeight; 
 B = 2; % Chg Time
 C = 1; % Temp Rise rate
-D = 5; % Li Plate Rate
+D = 5; % Anode Potential
 E = max(0, -100*max(abs(socDev(1, :))) + 1); % Need to make balCurr approach zero when there isn't more than 1% socDev
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -947,7 +953,7 @@ ref = data.References;
 % ---------------------------------------------------------------------
 scale_soc = 1;
 scale_TR = 3;
-scale_LPR = 300;
+scale_ANPOT = 300;
 
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -956,7 +962,7 @@ scale_LPR = 300;
 J = sum([...
     sum( ( (A/scale_soc) .* (ref(:, 1:NUMCELLS) - chrgSOC) ) .^2),  ... % avgSOC) ) .^2),  ... %
     sum( ( (A_dev/scale_soc) .* (0 - socDev) ) .^2),  ...
-    ... % sum( ( (D/scale_LPR) .* (ref(:, 1*NUMCELLS+1:2*NUMCELLS) - LiPlateRate) ) .^2),  ...
+    ... % sum( ( (D/scale_ANPOT) .* (ref(:, 1*NUMCELLS+1:2*NUMCELLS) - AnodePot) ) .^2),  ...
     ... % sum( ( (C./scale_TR) .* (ref(:, 2*NUMCELLS+1:3*NUMCELLS) - tempRate) ) .^2),  ...
     ... % sum( ( (E/1) .* (0 - U(2:p+1,1:NUMCELLS)) ) .^2),  ...
     e.^2, ...
