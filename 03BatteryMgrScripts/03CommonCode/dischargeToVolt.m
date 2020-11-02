@@ -46,7 +46,8 @@ param = struct(...
     'dataQ',            [],     ... %           "
     'errorQ',           [],     ... %           "
     'randQ',            [],     ... %           "
-    'testSettings',     []);        % -------------------------
+    'testSettings',     [],     ... %           " 
+    'eventLog',         []);        % -------------------------
 
 
 % read the acceptable names
@@ -85,6 +86,7 @@ dataQ = param.dataQ;
 errorQ = param.errorQ;
 randQ = param.randQ;
 testSettings = param.testSettings;
+eventLog = param.eventLog;
 
 if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
         && param.trig1 == true  
@@ -135,7 +137,7 @@ end
 try
     script_initializeVariables; % Run Script to initialize common variables
     script_initializeDevices; % Initialized devices like Eload, PSU etc.
-    curr = -abs(dischargeCurr); %2.5A is 1C for the ANR26650
+    curr = abs(dischargeCurr); %2.5A is 1C for the ANR26650
     
 %     testTimer = tic; % Start Timer for read period
     
@@ -167,25 +169,26 @@ try
         %% Triggers (GPIO from LabJack)
         script_triggerDigitalPins;
 
+        if packVolt < lowVoltLimit
+            batteryParam.soc(cellIDs) = 0; % 0% DisCharged
+            if ~strcmpi(cellConfig, 'single')
+                packParam.soc(packID) = 0;
+            end
+            break;
+        end
     end
    
+    % Save Battery Parameters
+    save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+    if ~strcmpi(cellConfig, 'single')
+        save(dataLocation + "007PackParam.mat", 'packParam');
+    end
     
+    % Get Current File name
+    [~, filename, ~] = fileparts(mfilename('fullpath'));
     % Save data
-    if tElasped > 5 % errorCode == 0 &&
-        if numCells > 1
-            save(dataLocation + "006_" + cellConfig + "_DischargeTo" +num2str(round(packVolt,0))+ "V.mat", 'battTS', 'cellIDs');
-        else
-            save(dataLocation + "006_" + cellIDs(1) + "_DischargeTo" +num2str(round(packVolt,0))+ "V.mat", 'battTS');
-        end
-        % Save Battery Parameters
-        save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-    end
-    
-    if plotFigs == true
-        currVals = ones(1, length(battTS.Time)) * curr;
-        plotBattData(battTS, 'noCore');
-    end
-    
+    saveBattData(battTS, metadata, testSettings, cells, filename);
+
     
 catch MEX
     script_resetDevices;

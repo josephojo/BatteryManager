@@ -19,7 +19,8 @@ else
     newStr = extractBetween(path,"",...
                    "03DataGen","Boundaries","inclusive");
     dataLocation = newStr + "\01CommonDataForBattery\";
-  
+    testSettings.dataLocation = dataLocation;
+
     %{
 %     % goes to path
 %     cd(path + "\..\..")
@@ -151,42 +152,64 @@ else
     %        cellConfig = evalin('base', 'cellConfig');
     %     catch
     %     end
-    
-    if ~isempty(testSettings) && isfield(testSettings, 'cellConfig')
-        cellConfig = testSettings.cellConfig;
-        if strcmpi(cellConfig, "single")
-            testSettings.voltMeasDev = "mcu";
-        elseif strcmpi(cellConfig, "series")
-            testSettings.voltMeasDev = "balancer";
-            testSettings.currMeasDev = "balancer";
+
+    if numCells > 1
+        load(dataLocation + "007PackParam.mat", 'packParam');
+        % Get PackID for the CellIDs provided
+        packInd = find(string(strjoin(cellIDs,', ')) == string(packParam.cells));
+        if ~isempty(packInd)
+            packID = string(packParam.Properties.RowNames(packInd));
+        else
+           error("There is NO Pack ID for the specified Cell IDs.") 
         end
     end
     
-    if ~exist('cellConfig', 'var')
+    if ~exist('cellConfig', 'var') && ~isfield(testSettings, 'cellConfig')
         if numCells == 1
             cellConfig = "single";
+            testSettings.cellConfig = cellConfig; % Update in the testSettings variable
         else
-            answer = questdlg('What is the stack configuration of the cells connected?', ...
-                'Cell Connection Configuration', ...
-                'Series Stack','Parallel Stack','Series-Parallel','Parallel Stack');
-            % Handle response
-            switch answer
-                case 'Series Stack'
-                    disp(['Configuring for ' answer])
+            stack = char(packParam.stack(packID));
+            stackLet = stack(isstrprop(stack,'alpha'));
+            
+            switch stackLet
+                case 'S'
                     cellConfig = 'series';
-                case 'Parallel Stack'
-                    disp(['Configuring for ' answer])
+                case 'P'
                     cellConfig = 'parallel';
-                case 'Series-Parallel'
-                    disp('Configuring for Series-Parallel Stack.')
+                case 'SP'
                     cellConfig = 'SerPar';
             end
+            testSettings.cellConfig = cellConfig; % Update in the testSettings variable
         end
+            
+        %{
+        answer = questdlg('What is the stack configuration of the cells connected?', ...
+            'Cell Connection Configuration', ...
+            'Series Stack','Parallel Stack','Series-Parallel','Parallel Stack');
+        % Handle response
+        switch answer
+            case 'Series Stack'
+                disp(['Configuring for ' answer])
+                cellConfig = 'series';
+            case 'Parallel Stack'
+                disp(['Configuring for ' answer])
+                cellConfig = 'parallel';
+            case 'Series-Parallel'
+                disp('Configuring for Series-Parallel Stack.')
+                cellConfig = 'SerPar';
+        end
+        %}
+    elseif isfield(testSettings, 'cellConfig')
+        cellConfig = testSettings.cellConfig;
     end
-end
 
-if ~strcmpi(cellConfig, "single")
-    load(dataLocation + "007PackParam.mat", 'packParam');
+    if strcmpi(cellConfig, "single")
+        testSettings.voltMeasDev = "mcu";
+    elseif strcmpi(cellConfig, "series")
+        testSettings.voltMeasDev = "balancer";
+        testSettings.currMeasDev = "balancer";
+    end
 end
 
 %% TC Info
@@ -210,7 +233,7 @@ else
         prompt = {'What channels have the temperature sensors been connected to? (Seperate by commas)'};
         dlgtitle = 'Info on Temp. Sensors';
         dims = [1 50];
-        definput = {'9, 10, 11, 13'};
+        definput = {'9, 10, 11, 12, 13'};
         answer = inputdlg(prompt,dlgtitle,dims,definput);
         if ~isempty(answer)
             tempVal = str2double(strsplit(answer{1},','));
@@ -364,7 +387,7 @@ tElasped = 0;
 if caller == "gui"
     readPeriod = testSettings.readPeriod;
 else
-    readPeriod = 0.25; %0.25; % Number of seconds to wait before reading values from devices
+    readPeriod = 0.5; %0.25; % Number of seconds to wait before reading values from devices
 end
 
 plotFigs = false;
@@ -378,3 +401,36 @@ battTS = timeseries();
 battData = struct;
 
 testStatus = "running";
+
+% Variables needed to compute current of the balancers since they're
+% bidirectional in nature, so if one cell discharges, the others charge
+chrgEff = 0.7;
+dischrgEff = 0.7;
+T_chrg = eye(numCells) - (repmat(1/numCells, numCells) / chrgEff); % Current Transformation to convert primary cell currents to net cell currents to each cell during charging
+T_dchrg =  eye(numCells) - (repmat(1/numCells, numCells) * dischrgEff); % Current Transformation to convert primary cell currents to net cell currents to each cell during discharging
+
+% Initialize Metadata struct that is saved with Data after Test
+dateStr = string(datetime('now', 'Format','yyMMdd_HHmm'));
+metadata.startDate = string(datetime('now', 'Format','yyMMdd'));
+metadata.startTime = string(datetime('now', 'Format','HHmm'));
+metadata.dataSample = readPeriod;
+metadata.cellIDs = cellIDs;
+if numCells > 1
+    metadata.packID = packID;
+end
+
+% #DEP_01 - If this order changes, the order in "script_queryData" should 
+% also be altered
+metadata.dataColumnHeaders = ["Pack Voltage", "Pack Current", "Pack SOC", "Pack Transferred Capacity"];
+colHeaderTemp1 = [];
+for cellID = cellIDs
+    colHeaderTemp1 = [colHeaderTemp1; ["Cell " + cellID + " Voltage", ...
+                                        "Cell " + cellID + " Current", ...
+                                        "Cell " + cellID + " SOC"    , ...
+                                        "Cell " + cellID + " Transferred Capacity"]];
+end
+colHeaderTemp2 = [];
+for i = 1:length(tempChnls)
+    colHeaderTemp2 = [colHeaderTemp2, "TC@Ch " + tempChnls(i)];
+end
+metadata.dataColumnHeaders = [metadata.dataColumnHeaders, colHeaderTemp1(:)', colHeaderTemp2(:)'];

@@ -49,7 +49,8 @@ param = struct(...
     'dataQ',            [],     ... %           "
     'errorQ',           [],     ... %           "
     'randQ',            [],     ... %           "
-    'testSettings',     []);        % -------------------------
+    'testSettings',     [],     ... %           " 
+    'eventLog',         []);        % -------------------------
 
 
 % read the acceptable names
@@ -88,6 +89,7 @@ dataQ = param.dataQ;
 errorQ = param.errorQ;
 randQ = param.randQ;
 testSettings = param.testSettings;
+eventLog = param.eventLog;
 
 if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
         && param.trig1 == true  
@@ -172,23 +174,17 @@ try
         
     end
    
+    % Save Battery Parameters
+    save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+    if ~strcmpi(cellConfig, 'single')
+        save(dataLocation + "007PackParam.mat", 'packParam');
+    end
     
+    % Get Current File name
+    [~, filename, ~] = fileparts(mfilename('fullpath'));
     % Save data
-    if tElasped > 5 % errorCode == 0 &&
-        if numCells > 1
-            save(dataLocation + "005_" + cellConfig + "_ChargeToVolt.mat", 'battTS', 'cellIDs');
-        else
-            save(dataLocation + "005_" + cellIDs(1) + "_ChargeToVolt.mat", 'battTS');
-        end
-        % Save Battery Parameters
-        save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-    end
-    
-    if plotFigs == true
-        currVals = ones(1, length(battTS.Time)) * curr;
-        plotBattData(battTS, 'noCore');
-    end
-    
+    saveBattData(battTS, metadata, testSettings, cells, filename);
+      
     
 catch MEX
     script_resetDevices;

@@ -58,6 +58,7 @@ script_queryData; % Run Script to query data from devices
 script_failSafes; %Run FailSafe Checks
 if errorCode == 1 || strcmpi(testStatus, "stop")
     script_idle;
+    script_resetDevices;
     return;
 end
 script_discharge; % Run Script to begin/update discharging process
@@ -85,30 +86,21 @@ while packVolt > lowVoltLimit
 end
 
 
+batteryParam.soc(cellIDs) = 0; % 0% DisCharged
+if ~strcmpi(cellConfig, 'single')
+    packParam.soc(packID) = 0; % 0% DisCharged
+end
+
+% Save Battery Parameters
+save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+if ~strcmpi(cellConfig, 'single')
+    save(dataLocation + "007PackParam.mat", 'packParam');
+end
+
+% Get Current File name
+[~, filename, ~] = fileparts(mfilename('fullpath'));
 % Save data
-if tElasped > 5 % errorCode == 0 &&
-    if numCells > 1
-        save(dataLocation + "006_" + cellConfig + "_DischargeToEmpty.mat", 'battTS', 'cellIDs');
-    else
-        save(dataLocation + "006_" + cellIDs(1) + "_DischargeToEmpty.mat", 'battTS'); 
-    end
-    batteryParam.soc(cellID) = 0; % 0% DisCharged
-    % Save Battery Parameters
-    save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-%     disp("dischargeToEmpty Completed. And Data Saved.")
-end
-
-
-% Plot the data if true
-if plotFigs == true
-    currVals = ones(1, length(battTS.Time)) * curr;
-    plot(battTS.Time, battTS.Data(:,1),battTS.Time, battTS.Data(:,2),...
-        battTS.Time, battTS.Data(:,3), battTS.Time, battTS.Data(:,4),...
-        'LineWidth', 3);
-    hold on;
-    plot(battTS.Time, currVals);
-    legend('packVolt','packCurr', 'SOC', 'Ah', 'profile');
-end
+saveBattData(battTS, metadata, testSettings, cells, filename);
 
 
 catch MEX

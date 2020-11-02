@@ -76,30 +76,25 @@ while abs(packCurr) > abs(cvMinCurr)
 
 end
 
-% Plot the data if true
-if plotFigs == true
-    currVals = ones(1, length(battTS.Time)) * curr;
-    plot(battTS.Time, battTS.Data(:,1),battTS.Time, battTS.Data(:,2),...
-        battTS.Time, battTS.Data(:,3), battTS.Time, battTS.Data(:,4),...
-        'LineWidth', 3);
-    hold on;
-    plot(battTS.Time, currVals);
-    legend('packVolt','packCurr', 'SOC', 'Ah', 'profile');
-end
-
 % Save data
 if errorCode == 0 && tElasped > 1   
     
     batteryParam.soc(cellIDs) = 1; % 100% Charged
+    if ~strcmpi(cellConfig, 'single')
+        packParam.soc(packID) = 1;
+    end
+    
     % Save Battery Parameters
     save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-    
-    if numCells > 1
-        save(dataLocation + "005_" + cellConfig + "_ChargeToFull.mat", 'battTS', 'cellIDs');
-    else
-        save(dataLocation + "005_" + cellIDs(1) + "_ChargeToFull.mat", 'battTS');
+    if ~strcmpi(cellConfig, 'single')
+        save(dataLocation + "007PackParam.mat", 'packParam');
     end
 
+   % Get Current File name
+    [~, filename, ~] = fileparts(mfilename('fullpath'));
+    % Save data
+    saveBattData(battTS, metadata, testSettings, cells, filename);
+    
 end
 catch MEX
     script_resetDevices;    

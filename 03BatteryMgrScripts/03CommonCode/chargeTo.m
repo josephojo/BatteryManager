@@ -51,7 +51,8 @@ param = struct(...
     'dataQ',            [],     ... %           "
     'errorQ',           [],     ... %           "
     'randQ',            [],     ... %           "
-    'testSettings',     []);        % -------------------------
+    'testSettings',     [],     ... %           " 
+    'eventLog',         []);        % -------------------------
 
 
 % read the acceptable names
@@ -90,6 +91,7 @@ dataQ = param.dataQ;
 errorQ = param.errorQ;
 randQ = param.randQ;
 testSettings = param.testSettings;
+eventLog = param.eventLog;
 
 if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
         && param.trig1 == true  
@@ -193,6 +195,9 @@ try
         end
         
         batteryParam.soc(cellIDs) = 1; % 100% Charged
+        if ~strcmpi(cellConfig, 'single')
+            packParam.soc(packID) = 1;
+        end
     else
         % While the current SOC is less than the specified soc
         while packSOC < targSOC
@@ -216,29 +221,23 @@ try
                 script_TriggerDigitalPins;
 
             else
-                batteryParam.soc(cellIDs) = 1; % 100% Charged
+%                 batteryParam.soc(cellIDs) = 1; % 100% Charged
                 break;
             end
         end
     end
     
+    % Save Battery Parameters
+    save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+    if ~strcmpi(cellConfig, 'single')
+        save(dataLocation + "007PackParam.mat", 'packParam');
+    end
 
-    
+    % Get Current File name
+    [~, filename, ~] = fileparts(mfilename('fullpath'));
     % Save data
-    if tElasped > 5 % errorCode == 0 &&
-        if numCells > 1
-            save(dataLocation + "005_" + cellConfig + "_ChargeTo" +num2str(round(packSOC*100,0))+ "%.mat", 'battTS', 'cellIDs');
-        else
-            save(dataLocation + "005_" + cellIDs(1) + "_ChargeTo" +num2str(round(packSOC*100,0))+ "%.mat", 'battTS');
-        end
-        % Save Battery Parameters
-        save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-    end
+    saveBattData(battTS, metadata, testSettings, cells, filename);
     
-    if plotFigs == true
-        currVals = ones(1, length(battTS.Time)) * curr;
-        plotBattData(battTS, 'noCore');
-    end
     
 catch MEX
     script_resetDevices;

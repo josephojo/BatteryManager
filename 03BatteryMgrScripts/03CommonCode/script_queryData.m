@@ -155,7 +155,7 @@ elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMe
 elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "balancer")
     % Use Current Data from either PSU or ELOAD for Pack current
     if strcmpi(battState, "discharging")
-        packCurr = eload.MeasureCurr(); % Dischare is positive
+        packCurr = eload.MeasureCurr(); % Discharge is positive
     elseif strcmpi(battState, "charging")
         packCurr = -psu.measureCurr(); % Charging is negative
     elseif strcmpi(battState, "idle")
@@ -221,10 +221,12 @@ if ismember("SOC", testSettings.data2Record)
     
 end
 
+% #DEP_01 - If this order changes, the order in "script_initializeVariables" 
+% should also be altered
 data = [packVolt, packCurr, packSOC, AhCap,...
             cells.volt(cellIDs)', cells.curr(cellIDs)',...
             cells.SOC(cellIDs)',cells.AhCap(cellIDs)',...
-            tempChnls(:)', thermoData(:)'];
+            thermoData(:)'];
 
 
 
@@ -262,15 +264,16 @@ else
             end
             
             Bstr = "";
-            for cellID = cellIDs                
-                Bstr = Bstr + sprintf("Curr " + cellID + " = %.2f A\t\t", cells.curr(cellID));
-                Bstr = Bstr + sprintf("SOC " + cellID + " = %.2f \t\t", cells.SOC(cellID)*100);
+            for cellID = cellIDs           
+                Bstr = Bstr + sprintf("Volt " + cellID + " = %.2f V\t", cells.volt(cellID));
+                Bstr = Bstr + sprintf("Curr " + cellID + " = %.2f A\t", cells.curr(cellID));
+                Bstr = Bstr + sprintf("SOC " + cellID + " = %.2f\t", cells.SOC(cellID)*100);
                 Bstr = Bstr + sprintf("Ah " + cellID + " = %.3f Ah\t", cells.AhCap(cellID));
                 Bstr = Bstr + newline;
             end
             
-            Bstr = Bstr + sprintf("\nBatt Volt = %.4f V\tBatt Curr = %.4f A\n" + ...
-                "Batt SOC = %.2f \t\tBatt AH = %.3f\n\n", packVolt, packCurr,...
+            Bstr = Bstr + sprintf("\nPack Volt = %.4f V\tPack Curr = %.4f A\n" + ...
+                "Pack SOC = %.2f \t\tPack AH = %.3f\n\n", packVolt, packCurr,...
                 packSOC*100, AhCap);
             fprintf(Tstr + newline);
             fprintf(Bstr);
@@ -296,15 +299,16 @@ else
         end
 
         Bstr = "";
-        for cellID = cellIDs                
+        for cellID = cellIDs     
+            Bstr = Bstr + sprintf("Volt " + cellID + " = %.2f V\t", cells.volt(cellID));
             Bstr = Bstr + sprintf("Curr " + cellID + " = %.2f A\t\t", cells.curr(cellID));
             Bstr = Bstr + sprintf("SOC " + cellID + " = %.2f \t\t", cells.SOC(cellID)*100);
             Bstr = Bstr + sprintf("Ah " + cellID + " = %.3f Ah\t", cells.AhCap(cellID));
             Bstr = Bstr + newline;
         end
 
-        Bstr = Bstr + sprintf("\nBatt Volt = %.4f V\tBatt Curr = %.4f A\n" + ...
-            "Batt SOC = %.2f \t\tBatt AH = %.3f\n\n", packVolt, packCurr,...
+        Bstr = Bstr + sprintf("\tPack Volt = %.4f V\tPack Curr = %.4f A\n" + ...
+            "Pack SOC = %.2f \t\tPack AH = %.3f\n\n", packVolt, packCurr,...
             packSOC*100, AhCap);
         fprintf(Tstr + newline);
         fprintf(Bstr);

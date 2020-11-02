@@ -3,7 +3,7 @@ function [battTS, cells] = chargeToTime(targTime, chargeCurr, varargin)
 %specified
 %
 %   Inputs: 
-%       targTime            : Target time to charge for
+%       targTime            : Target time to charge in seconds
 %      	chargeCurr          : Current (A) to charge
 %       varargin   
 %			trig1         	= false,  		: Accepts a Command to use the trigger activate something such as a heat pad
@@ -46,7 +46,8 @@ param = struct(...
     'dataQ',            [],     ... %           "
     'errorQ',           [],     ... %           "
     'randQ',            [],     ... %           "
-    'testSettings',     []);        % -------------------------
+    'testSettings',     [],     ... %           " 
+    'eventLog',         []);        % -------------------------
 
 
 % read the acceptable names
@@ -86,6 +87,7 @@ dataQ = param.dataQ;
 errorQ = param.errorQ;
 randQ = param.randQ;
 testSettings = param.testSettings;
+eventLog = param.eventLog;
 
 if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
         && param.trig1 == true  
@@ -152,7 +154,7 @@ try
     TimerScript = tic;
     ticks = 0;
     
-    % While the battery voltage is less than the limit (our 100% SOC) (CC mode)
+    % While running time is less than the target time
     while ticks < targTime
         ticks = toc(TimerScript);
         %% Measurements
@@ -174,17 +176,16 @@ try
 
     end
     
-    
-    % Save data
-    if tElasped > 5 % errorCode == 0 &&
-        if numCells > 1
-            save(dataLocation + "005_" + cellConfig + "_ChargeToTime.mat", 'battTS', 'cellIDs');
-        else
-            save(dataLocation + "005_" + cellIDs(1) + "_ChargeToTime.mat", 'battTS');
-        end
-        % Save Battery Parameters
-        save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+    % Save Battery Parameters
+    save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+    if ~strcmpi(cellConfig, 'single')
+        save(dataLocation + "007PackParam.mat", 'packParam');
     end
+    
+    % Get Current File name
+    [~, filename, ~] = fileparts(mfilename('fullpath'));
+    % Save data
+    saveBattData(battTS, metadata, testSettings, cells, filename);
     
 catch MEX
     script_resetDevices;

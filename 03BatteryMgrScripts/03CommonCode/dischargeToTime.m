@@ -2,8 +2,8 @@ function [battTS, cells] = dischargeToTime(targTime, dischargeCurr, varargin)
 %dischargeTo Discharges to the specified SOC based on the previous SOC
 %
 %   Inputs: 
-%       targSOC             : Target SOC (0 to 1) to charge to
-%      	chargeCurr          : Current (A) to discharge
+%       targTime            : Target time to charge in seconds
+%      	dischargeCurr       : Current (A) to discharge
 %       varargin   
 %			trig1         	= false,  		: Accepts a Command to use the trigger activate something such as a heat pad
 %			trig1_pin     	= 4,      		: Specifies what pin on the MCU to use(Initially used on a LABJack U3-HV)
@@ -44,7 +44,8 @@ param = struct(...
     'dataQ',            [],     ... %           "
     'errorQ',           [],     ... %           "
     'randQ',            [],     ... %           "
-    'testSettings',     []);        % -------------------------
+    'testSettings',     [],     ... %           " 
+    'eventLog',         []);        % -------------------------
 
 
 % read the acceptable names
@@ -84,6 +85,7 @@ dataQ = param.dataQ;
 errorQ = param.errorQ;
 randQ = param.randQ;
 testSettings = param.testSettings;
+eventLog = param.eventLog;
 
 if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
         && param.trig1 == true  
@@ -135,7 +137,7 @@ try
     % Initializations
     script_initializeVariables; % Run Script to initialize common variables
     script_initializeDevices; % Initialized devices like Eload, PSU etc.
-    curr = -abs(dischargeCurr); %2.5A is 1C for the ANR26650
+    curr = abs(dischargeCurr); %2.5A is 1C for the ANR26650
     
 %     testTimer = tic; % Start Timer for read period
 
@@ -143,6 +145,7 @@ try
     script_failSafes; %Run FailSafe Checks
     if errorCode == 1 || strcmpi(testStatus, "stop")
         script_idle;
+        script_resetDevices;
         return;
     end
     script_discharge; % Run Script to begin/update discharging process
@@ -169,35 +172,26 @@ try
         end
         %% Triggers (GPIO from LabJack)
         script_triggerDigitalPins;
-
-    end
-    
-    
-    % Save data
-    if tElasped > 5 %errorCode == 0 &&
-        if numCells > 1
-            save(dataLocation + "006_" + cellConfig + "_DischargeToTime.mat", 'battTS', 'cellIDs');
-        else
-            save(dataLocation + "006_" + cellIDs(1) + "_DischargeToTime.mat", 'battTS');
-        end
-        % Save Battery Parameters
-        save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-    end
-    
-    if plotFigs == true
-        currVals = ones(1, length(battTS.Time)) * curr;
-        %         plot(battTS.Time, battTS.Data(:,1),battTS.Time, battTS.Data(:,2),...
-        %             battTS.Time, battTS.Data(:,3), battTS.Time, battTS.Data(:,4),...
-        %             'LineWidth', 3);
         
-        plotBattData(battTS, 'noCore');
-        hold on;
-        subplot(3, 1, 1);
-        plot(battTS.Time, currVals);
-        legend('packVolt','packCurr', 'profile', 'SOC');
+        if packVolt < lowVoltLimit && ~strcmpi(testStatus, "stop")
+            batteryParam.soc(cellIDs) = 0; % 0% DisCharged
+            if ~strcmpi(cellConfig, 'single')
+                packParam.soc(packID) = 0;
+            end
+            break;
+        end
     end
     
+    % Save Battery Parameters
+    save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+    if ~strcmpi(cellConfig, 'single')
+        save(dataLocation + "007PackParam.mat", 'packParam');
+    end
     
+    % Get Current File name
+    [~, filename, ~] = fileparts(mfilename('fullpath'));
+    % Save data
+    saveBattData(battTS, metadata, testSettings, cells, filename);
     
 catch MEX
     script_resetDevices;

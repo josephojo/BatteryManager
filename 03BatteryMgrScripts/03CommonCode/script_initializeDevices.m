@@ -247,6 +247,7 @@ elseif strcmpi(caller, "cmdWindow")
                 || (isvalid(bal) && strcmpi(bal.serialStatus(), "Disconnected"))
             bal = DC2100A(balPort, eventLog, 'Num_Cells', length(cellIDs));
         end
+        wait(2); % Wait for the EEprom Data to be updated
     end
     %--------------------------------------------------------------------------
     
