@@ -68,7 +68,7 @@ try
     verbosity = 2; % Data measurements are not displayed since the results from the MPC will be.
     balBoard_num = 0; % ID for the main balancer board
     
-    wait(2); % Wait for the EEprom Data to be updated
+%     wait(2); % Wait for the EEprom Data to be updated
 catch ME
     script_handleException;
 end   
@@ -117,9 +117,9 @@ MAX_CHRG_VOLT = batteryParam.chargedVolt(cellIDs);
 MIN_DCHRG_VOLT = batteryParam.dischargedVolt(cellIDs);
 MAX_CELL_VOLT = batteryParam.maxVolt(cellIDs);
 MIN_CELL_VOLT = batteryParam.minVolt(cellIDs);
-MAX_BAL_SOC = 0.80; % Maximum SOC that that balancers will be active and the mpc will optimize for balance currents
+MAX_BAL_SOC = 0.95; % Maximum SOC that that balancers will be active and the mpc will optimize for balance currents
 MIN_BAL_SOC = 0.25; % Minimum SOC that that balancers will be active and the mpc will optimize for balance currents
-ALLOWABLE_SOCDEV = 0.01;
+ALLOWABLE_SOCDEV = 0.005;
 MIN_PSUCURR_4_BAL = -1.0; % The largest amount of current to use while balancing
 RATED_CAP = 3.35;
 
@@ -165,7 +165,7 @@ indices.x = xIND;
 indices.y = yIND;
 
 
-TARGET_SOC = 0.85; %0.98;
+TARGET_SOC = 0.70; %0.98;
 ANPOT_Target = -0.1;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
 
 % Balance Efficiencies
@@ -431,11 +431,11 @@ try
     % Small Rates affect speed a lot
     for i = 1:NUMCELLS
         mpcObj.MV(i).Max =  MAX_BAL_CURR;      mpcObj.MV(i).RateMax =  0.5; % MAX_CELL_CURR;
-        mpcObj.MV(i).Min =  MIN_BAL_CURR;     mpcObj.MV(i).RateMin = -0.5; % -2; % -6
-    end
+        mpcObj.MV(i).Min =  0;     mpcObj.MV(i).RateMin = -0.5; % -2; % -6
+    end % MIN_BAL_CURR
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;
-    mpcObj.MV(NUMCELLS + 1).Min =  MIN_PSUCURR_4_BAL; % (MAX_CELL_CURR - MAX_BAL_CURR);
+    mpcObj.MV(NUMCELLS + 1).Min = (MIN_CELL_CURR + MAX_BAL_CURR); % MIN_PSUCURR_4_BAL; % 
     mpcObj.MV(NUMCELLS + 1).RateMax =  2; % MAX_CELL_CURR;
     mpcObj.MV(NUMCELLS + 1).RateMin = -2; % -6
     
