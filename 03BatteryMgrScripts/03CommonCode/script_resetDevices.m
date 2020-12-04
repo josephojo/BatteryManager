@@ -121,6 +121,7 @@ if strcmpi(caller, "gui")
     send(randQ, msg);
 else
     disp(msg);
+    disp("Test Ended on " + string(datetime('now')))
 end
 catch ME
     if strcmpi(caller, "gui")

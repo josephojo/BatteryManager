@@ -71,12 +71,17 @@ if alarmState == true
     if al <= 5
         warning("PSU AlarmState is True. Cause: " + alarm);
     end
-    if al == 1
+    if a1 == 1 || mod(al, 100)==0 % Notify user every 100 times alarm remains
         notifyOwnerEmail("PSU AlarmState is True. Cause: " + alarm)
     end
 end
 
 if errorCode == 1
+    % Save Battery Parameters
+    save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+    if ~strcmpi(cellConfig, 'single')
+        save(dataLocation + "007PackParam.mat", 'packParam');
+    end
     notifyOwnerEmail(error)
 end
 

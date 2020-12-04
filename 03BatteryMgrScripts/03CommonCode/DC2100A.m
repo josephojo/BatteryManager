@@ -257,6 +257,15 @@ classdef DC2100A < handle
         % Board Data - Such as system variables or measured data
         % ########------------------------------------------------
         
+        % Sense resistor values for the primary(P) and secondary(S) side 
+        % of the converter used to calculate the peak current through
+        % each side of the converter. Peak is determined by voltage ramp to
+        % 50mV on both sides
+        Rsens_P = 10e-3; % in ohm. Default value used to be 5 mOhm before res. change
+        Rsens_S = 20e-3; % in ohm. Default value used to be 10mOhm before res. change
+        Vsens   = 50e-3; % in Volt. 50 mV peak sense voltage
+
+        
         system_state % DC2100A Property. Stores the current state of the board
         
         numBoards = 0; % The number of boards currently connected
@@ -388,6 +397,10 @@ classdef DC2100A < handle
         Val = 0;
     end
 
+    properties (Dependent)
+        PeakCurr_pri
+        PeakCurr_sec
+    end
     
     
     % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -1055,11 +1068,39 @@ classdef DC2100A < handle
                                             "Board: " + num2str(board_num)...
                                             + " " + condition_string + ". Flags = "...
                                             + dec2hex(temp_ov_flags, 3) + dec2hex(temp_uv_flags, 3));
+                                        UV_Map = flip(dec2bin(temp_uv_flags, 12)); % Flip vector to lsb first
+                                        UV_cells = find(UV_Map == '1');
+                                        if length(UV_cells) == 1
+                                            obj.eventLog.Add(ErrorCode.OVUV,...
+                                            "Board: " + num2str(board_num)...
+                                            + " " + condition_string + ". UV has occurred in Cell "...
+                                            + string(UV_cells));
+                                        else
+                                           
+                                            obj.eventLog.Add(ErrorCode.OVUV,...
+                                            "Board: " + num2str(board_num)...
+                                            + " " + condition_string + ". UV has occurred in Cells "...
+                                            + strjoin(string(UV_cells(1:end-1)), ', ') + ", and " + string(UV_cells(end)));
+                                        end
                                     else
                                         obj.eventLog.Add(ErrorCode.OVUV,...
                                             "Board: " + num2str(board_num)...
                                             + " returned from OV/UV" + ". Flags = "...
                                             + dec2hex(temp_ov_flags, 3) + dec2hex(temp_uv_flags, 3));
+                                        
+                                        OV_Map = flip(dec2bin(temp_uv_flags, 12)); % Flip vector to lsb first
+                                        OV_cells = find(OV_Map == '1');
+                                        if length(OV_cells) == 1
+                                            obj.eventLog.Add(ErrorCode.OVUV,...
+                                            "Board: " + num2str(board_num)...
+                                            + " " + condition_string + ". OV has occurred in Cell "...
+                                            + string(OV_cells));
+                                        else
+                                            obj.eventLog.Add(ErrorCode.OVUV,...
+                                            "Board: " + num2str(board_num)...
+                                            + " " + condition_string + ". OV has occurred in Cells "...
+                                            + strjoin(string(OV_cells(1:end-1)), ', ') + ", and " + string(UV_cells(end)));
+                                        end
                                     end
                                 end
                             end
@@ -3173,6 +3214,14 @@ classdef DC2100A < handle
             end
             
             obj.eventLog.Add(ErrorCode.EXCEPTION, mexStr); % Show the exception on the Error Logger app
+        end
+        
+        function peakcurr = get.PeakCurr_pri(obj)
+            peakCurr = obj.Vsens / obj.Rsens_P;
+        end
+        
+        function peakcurr = get.PeakCurr_sec(obj)
+            peakCurr = obj.Vsens / obj.Rsens_S;
         end
         
     end

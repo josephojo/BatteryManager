@@ -105,7 +105,7 @@ try
 %     MIN_BAL_CURR = [-1.165, -1.271, -1.244, -1.179]';
 %     MAX_BAL_CURR = [2.000, 1.878, 1.883, 1.866]';
     MIN_BAL_CURR = [-0.5, -0.5, -0.5, -0.5]';
-    MAX_BAL_CURR = 2; % [0.5, 0.5, 0.5, 0.5]';
+    MAX_BAL_CURR = 2.0; % [0.5, 0.5, 0.5, 0.5]';
 
 catch ME
     script_handleException;
@@ -120,7 +120,7 @@ MIN_CELL_VOLT = batteryParam.minVolt(cellIDs);
 MAX_BAL_SOC = 0.95; % Maximum SOC that that balancers will be active and the mpc will optimize for balance currents
 MIN_BAL_SOC = 0.25; % Minimum SOC that that balancers will be active and the mpc will optimize for balance currents
 ALLOWABLE_SOCDEV = 0.005;
-MIN_PSUCURR_4_BAL = -5.0; % The largest amount of current to use while balancing
+MIN_PSUCURR_4_BAL = -1.0; % The largest amount of current to use while balancing
 RATED_CAP = 3.35;
 
 % battery capacity
@@ -381,7 +381,7 @@ battData.curr           = cells.curr(cellIDs)'; % zeros(1, NUMCELLS);
 % Using OCV vs SOC to initialize the cell SOCs based on their resting voltages
 [~, minIndSOC] = min(  abs( OCV - cells.volt(cellIDs)' )  );
 % initialSOCs = SOC(minIndSOC, 1); 
-initialSOCs = [0.54; 0.5450;0.540;0.600]; % [0.504; 0.5466; 0.5933; 0.546];
+initialSOCs = [0.504; 0.5466; 0.5933; 0.546];
 cells.prevSOC(cellIDs) = initialSOCs;
 prevSOC = mean(initialSOCs);
 
@@ -600,7 +600,7 @@ try
 
     sTime = [];readTime = [];
     tElapsed_plant = 0; prevStateTime = 0; prevMPCTime = 0;
-    SOC_Targets = [];
+
     while min(battData.SOC(end, :) <= TARGET_SOC)       
         
         if ( toc(testTimer)- prevMPCTime ) >= sampleTime && strcmpi(poolState, "finished")
@@ -610,6 +610,8 @@ try
 
             idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MAX_CELL_CURR));
             SOC_Target = xk(xIND.SOC) + (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC - xk(xIND.SOC, 1));
+            balSOCTarget = xk(xIND.SOC) - min(xk(xIND.SOC));
+            SOC_Target = SOC_Target - balSOCTarget;
             
             references = [SOC_Target(:)', repmat(ANPOT_Target, 1, NUMCELLS),... % ]; %
                             repmat(3, 1, NUMCELLS)]; 
@@ -673,11 +675,11 @@ try
                     predMdl.Curr.balWeight = 1;
                     p2 = predMdl;
                     options.Parameters = {p1, p2, p3, p4};
-                    mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(battData.SOC(end, :));
+%                     mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(battData.SOC(end, :));
                 end
                 
                 if BalanceCellsFlag == true
-                    mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(battData.SOC(end, :));
+%                     mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(battData.SOC(end, :));
                 end
             end
             
@@ -750,8 +752,9 @@ try
                 ANPOT = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
                    interpCurr , reshape(cells.SOC(cellIDs), [], 1) );
                 
-                SOC_Targets(end+1, :) = SOC_Target';
-%                 BalSOC_Targets(end+1, :) = balSOCTarget';
+               SOC_Targets(end+1, :) = SOC_Target';
+                BalSOC_Targets(end+1, :) = balSOCTarget';
+        
                
                 battData.time           = [battData.time        ; tElapsed_plant   ]; ind = 1;
                 battData.volt           = [battData.volt        ; reshape(cells.volt(cellIDs), 1, [])]; ind = ind + 1;
@@ -957,17 +960,17 @@ A_dev = 200 * predMdl.Curr.balWeight;
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Scaling Factors for each objective
 % ---------------------------------------------------------------------
-scale_soc = 1; % 0.075; % 0.0025;
+scale_soc = 0.035; % 0.075; % 0.0025;
 
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Cost Function
 % ---------------------------------------------------------------------
 fastChargingCost = sum( ( (A/scale_soc) .* (socTracking) ) .^2);
-socBalancingCost = sum( ( (A_dev/scale_soc) .* (0 - socDev) ) .^2);
+
 J = sum([...
-    fastChargingCost,  ... % avgSOC) ) .^2),  ... %
-    socBalancingCost,  ...
+   fastChargingCost,  ... % avgSOC) ) .^2),  ... %
+    ... % sum( ( (A_dev/scale_soc) .* (0 - socDev) ) .^2),  ...
     ... % sum( ( (D/scale_ANPOT) .* (ref(:, 1*NUMCELLS+1:2*NUMCELLS) - AnodePot) ) .^2),  ...
     ... % sum( ( (C./scale_TR) .* (ref(:, 2*NUMCELLS+1:3*NUMCELLS) - tempRate) ) .^2),  ...
     ... % sum( ( (E/1) .* (0 - U(2:p+1,1:NUMCELLS)) ) .^2),  ...
