@@ -1,10 +1,15 @@
 %% Series-Pack Fast Charging
 % By Joseph Ojo
 %
-% The ECM battery model used in this file was adopted from the work by:
 %
-% Xinfan Lin, Hector Perez, Jason Siegel, Anna Stefanopoulou
-%
+%   Stategy 1 - 
+%       This strategy optimizes the fast-charging trajectory as well as the
+%       deviation between each cell
+%   2) This current file tries to improve the capability of the model by
+%   performing subsample modelling. It predicts bal_As (Amp-second) instead of balcurr.
+%   This will allow the model to use the single current that the balancer
+%   can provide to estimate voltage and SOC since balancing might only be
+%   activated for a shorter period within a sample time.
 %
 %% Change Current Directory
 
@@ -81,7 +86,7 @@ NUMCELLS = length(cellIDs);
 % % Write the number of cells to board to prevent OV/UV on unconnected channels
 % bal.Cell_Present_Write(balBoard_num, NUMCELLS); 
 
-sampleTime = 5; % 0.5; % Sample time [s]
+sampleTime = 15; % 0.5; % Sample time [s]
 readPeriod = 0.25; % How often to read from plant
 prevTime = 0; prevElapsed = 0;
 
@@ -109,8 +114,9 @@ try
 
 catch ME
     script_handleException;
-end   
+end
 
+ACTUAL_BAL_DCHRG_CURR = 1.88;
 MAX_CELL_CURR = batteryParam.maxCurr(cellIDs);
 MIN_CELL_CURR = batteryParam.minCurr(cellIDs);
 MAX_CHRG_VOLT = batteryParam.chargedVolt(cellIDs);
@@ -169,8 +175,8 @@ TARGET_SOC = 0.70; %0.98;
 ANPOT_Target = -0.1;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
 
 % Balance Efficiencies
-chrgEff = 0.774; 
-dischrgEff = 0.651; 
+chrgEff = 0.7585;
+dischrgEff = 0.7876; 
 
 numStatesPerCell = length(fields(xIND));
 numOutputsPerCell = length(fields(yIND));
@@ -338,6 +344,7 @@ try
     currMdl.T_chrg = T_chrg;
     currMdl.T_dchrg = T_dchrg;
     currMdl.balWeight = 1; % Whether or not to use the balancing currents during optimization
+    currMdl.actualBalCurr = ACTUAL_BAL_DCHRG_CURR;
     
     % Anode Potential (indirectly Lithium Plating) Lookup table (From "01_INR18650F1L_AnodeMapData.mat")
     load(dataLocation + '01_INR18650F1L_AnodeMapData.mat'); % Lithium plating rate
@@ -430,14 +437,14 @@ try
     % Add Manipulated variable constraints
     % Small Rates affect speed a lot
     for i = 1:NUMCELLS
-        mpcObj.MV(i).Max =  MAX_BAL_CURR;      mpcObj.MV(i).RateMax =  0.5; % MAX_CELL_CURR;
-        mpcObj.MV(i).Min =  0;     mpcObj.MV(i).RateMin = -0.5; % -2; % -6
+        mpcObj.MV(i).Max =  MAX_BAL_CURR*sampleTime;     mpcObj.MV(i).RateMax =  0.5*sampleTime; % MAX_CELL_CURR;
+        mpcObj.MV(i).Min =  MIN_BAL_CURR*sampleTime;     mpcObj.MV(i).RateMin = -0.5*sampleTime; % -2; % -6
     end % MIN_BAL_CURR
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;
-    mpcObj.MV(NUMCELLS + 1).Min = (MIN_CELL_CURR + MAX_BAL_CURR); % MIN_PSUCURR_4_BAL; % 
-    mpcObj.MV(NUMCELLS + 1).RateMax =  2; % MAX_CELL_CURR;
-    mpcObj.MV(NUMCELLS + 1).RateMin = -2; % -6
+    mpcObj.MV(NUMCELLS + 1).Min = (MIN_CELL_CURR + MAX_BAL_CURR)*sampleTime; % MIN_PSUCURR_4_BAL; % 
+    mpcObj.MV(NUMCELLS + 1).RateMax =  2*sampleTime; % MAX_CELL_CURR;
+    mpcObj.MV(NUMCELLS + 1).RateMin = -2*sampleTime ; % -6
     
     % Equality Limits for state/output vars for each cell
     for i=1:NUMCELLS
@@ -452,7 +459,7 @@ try
         
         % Optimal Cell Curr
         mpcObj.States(i + (xCurr-1) * NUMCELLS).Max =  0;
-        mpcObj.States(i + (xCurr-1) * NUMCELLS).Min =  -5.0;
+        mpcObj.States(i + (xCurr-1) * NUMCELLS).Min =  -5.0*sampleTime;
         
         % ANPOT
 %         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Max =  inf;
@@ -707,30 +714,28 @@ try
                 mdl_X = P06_BattStateFcn_HW(xk, u, p1, p2, p3, p4);
                 mdl_Y = P06_OutputFcn_HW(mdl_X, u, p1, p2, p3, p4)';
 
-                optCurr = u; % u<0 == Charging, u>0 == discharging
+                opt_AmpSec = u; % u<0 == Charging, u>0 == discharging
                 cost = mpcinfo.Cost;
                 iters = mpcinfo.Iterations;
 
                 % Balancer and PSU Current
-                balCurr = optCurr(1:NUMCELLS);
-                battData.balCurr = [battData.balCurr; balCurr'];
-                optPSUCurr = optCurr(end);
-                battData.optPSUCurr  = [battData.optPSUCurr ; optPSUCurr];
+                bal_AmpSec = opt_AmpSec(1:NUMCELLS);
+                optPSU_AmpSec = opt_AmpSec(end);
                 
                 
                 % Set power supply current
-                curr = abs(optPSUCurr); % PSU Current. Using "curr" since script in nect line uses "curr"
+                curr = abs(optPSU_AmpSec); % PSU Current. Using "curr" since script in nect line uses "curr"
                 script_charge;
                                
                 % Disable Balancing if SOC is past range. MPC won't optimize
                 % for Balance currents past this range
                 if BalanceCellsFlag == true
-                    bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = balCurr;
+                    bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = bal_AmpSec;
                     
                     % send balance charges to balancer
-                    bal.SetBalanceCharges(balBoard_num, balCurr*sampleTime); % Send charges in As
+                    bal.SetBalanceCharges(balBoard_num, bal_AmpSec); % Send charges in As
                 else
-                    bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = zeros(size(balCurr));
+                    bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = zeros(size(bal_AmpSec));
                 end
                 
                 tElapsed_plant = toc(testTimer);
@@ -738,7 +743,7 @@ try
                 
                 % Combine the PSU and BalCurr based on the balancer transformation
                 % matrix
-                combCurr = combineCurrents(optPSUCurr, balCurr, predMdl);
+                combCurr = combineCurrents(optPSU_AmpSec / sampleTime, bal_AmpSec / sampleTime, predMdl);
                 
                 wait(0.05);
                 
@@ -752,7 +757,10 @@ try
                 
                 SOC_Targets(end+1, :) = SOC_Target';
 %                 BalSOC_Targets(end+1, :) = balSOCTarget';
-               
+                
+                battData.balCurr = [battData.balCurr; bal_AmpSec'];
+                battData.optPSUCurr  = [battData.optPSUCurr ; optPSU_AmpSec];
+                
                 battData.time           = [battData.time        ; tElapsed_plant   ]; ind = 1;
                 battData.volt           = [battData.volt        ; reshape(cells.volt(cellIDs), 1, [])]; ind = ind + 1;
                 battData.curr           = [battData.curr        ; reshape(cells.curr(cellIDs), 1, [])]; ind = ind + 1;
@@ -785,7 +793,7 @@ try
                     currStr = currStr + sprintf("Curr %d = %.4f\n", i, battData.curr(end,i));
                     socStr = socStr + sprintf("SOC %d = %.4f\n", i, battData.SOC(end, i));
                 end
-                psuStr = psuStr + sprintf("PSUCurr = %.4f A", optPSUCurr(1));
+                psuStr = psuStr + sprintf("PSUCurr = %.4f A", optPSU_AmpSec(1));
                 
                 disp(newline)
                 disp(num2str(tElapsed_plant,'%.2f') + " seconds");

@@ -400,6 +400,8 @@ classdef DC2100A < handle
     properties (Dependent)
         PeakCurr_pri
         PeakCurr_sec
+        RMSCurr_Pri
+        RMSCurr_Sec
     end
     
     
@@ -1878,7 +1880,20 @@ classdef DC2100A < handle
                                 
                                 obj.Timed_Balancers(board_num +1, cell_num +1)...
                                     .bal_timer = balance_timer(cell_num +1);
+                                
+                                % Set the current of each cell based on
+                                % whether it is charging or not
+                                if balance_timer(cell_num +1) ~= 0
+                                    if balance_action(cell_num +1) == LTC3300.Cell_Balancer.BALANCE_ACTION.Charge
+                                        obj.Currents(board_num +1, cell_num +1) = -obj.RMSCurr_Pri(cell_num +1);
+                                    elseif balance_action(cell_num +1) == LTC3300.Cell_Balancer.BALANCE_ACTION.Discharge
+                                        obj.Currents(board_num +1, cell_num +1) = obj.RMSCurr_Pri(cell_num +1);
+                                    end
+                                else
+                                    obj.Currents(board_num +1, cell_num +1) = 0; % Not Charging or Discharging since timer is off
+                                end
                             end
+                                
                             % #ForTest
 %                             obj.eventLog.Add(ErrorCode.NO_ERROR,...
 %                         "Action: " + num2str([balance_action(3:6)]) ...
@@ -2943,7 +2958,7 @@ classdef DC2100A < handle
             num_currents = length(current);
             if num_currents == DC2100A.MAX_CELLS
                 curr2Send = current;
-                obj.Currents(board_num, :) = current(1, logical(bal.cellPresent(1, :)));
+%                 obj.Currents(board_num, :) = current(1, logical(bal.cellPresent(1, :)));
                 
             elseif num_currents == obj.numCells(board_num +1)
                 curr2Send = zeros(DC2100A.MAX_CELLS, 1);
@@ -2994,7 +3009,7 @@ classdef DC2100A < handle
             num_charges = length(charges);
             if num_charges == DC2100A.MAX_CELLS
                 charges2Send = charges;
-                obj.Currents(board_num, :) = charges(1, logical(bal.cellPresent(1, :)));
+%                 obj.Currents(board_num, :) = charges(1, logical(bal.cellPresent(1, :)));
                 
             elseif num_charges == obj.numCells(board_num +1)
                 charges2Send = zeros(DC2100A.MAX_CELLS, 1);
@@ -3216,16 +3231,31 @@ classdef DC2100A < handle
             obj.eventLog.Add(ErrorCode.EXCEPTION, mexStr); % Show the exception on the Error Logger app
         end
         
-        function peakcurr = get.PeakCurr_pri(obj)
+    end
+    
+    methods % Get and Set Functions
+         function peakCurr = get.PeakCurr_pri(obj)
             peakCurr = obj.Vsens / obj.Rsens_P;
         end
         
-        function peakcurr = get.PeakCurr_sec(obj)
+        function peakCurr = get.PeakCurr_sec(obj)
             peakCurr = obj.Vsens / obj.Rsens_S;
+        end 
+        
+        function rms_pri = get.RMSCurr_Pri(obj)
+            V_stack = obj.Stack_Summary_Data.Volt_Sum;
+            rms_pri = obj.PeakCurr_pri * ...
+                sqrt(V_stack / 3*(V_stack + obj.numCells * ...
+                obj.Voltages(1, logical(obj.cellPresent(1, :)))'));
         end
         
+        function rms_sec = get.RMSCurr_Sec(obj)
+            V_stack = obj.Stack_Summary_Data.Volt_Sum;
+            rms_sec = obj.PeakCurr_sec * ...
+                sqrt(V_stack / 3*(V_stack + obj.numCells * ...
+                obj.Voltages(1, logical(obj.cellPresent(1, :)))'));
+        end 
     end
-    
     
     % Serial Connection Methods
     methods

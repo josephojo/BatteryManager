@@ -20,7 +20,7 @@ function y = P06_OutputFcn_HW(x, u, p1, p2, p3, p4)
 
 
 
-% dt          = p1;   % Algorithm sample time
+dt          = p1;   % Algorithm sample time
 predMdl     = p2;   % Predictive Battery Model Structure
 cellData    = p3;   % Constant Cell Data
 indices     = p4;   % Indices for the STATES (x) and OUTPUTS (y) presented as a struts

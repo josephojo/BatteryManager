@@ -29,46 +29,70 @@ NUMCELLS = cellData.NUMCELLS;
 xIND = indices.x;
 
 % Cell Current Calculation
-balCurr = u(1:NUMCELLS, 1);
-psuCurr = u(end, 1);
-curr = combineCurrents(psuCurr, balCurr, predMdl);
+bal_AmpSec = u(1:NUMCELLS, 1);
+psu_AmpSec = u(end, 1);
 
 Tf = predMdl.Temp.Tf;
 
-prevSOC = x(xIND.SOC, 1);
-prevTemp = [x(xIND.Tc, 1), x(xIND.Ts, 1)]'; prevTemp_flat = prevTemp(:);
-prevV1 =  x(xIND.V1, 1);
-prevV2 =  x(xIND.V2, 1);
+balTimes = (abs(bal_AmpSec) / predMdl.Curr.actualBalCurr);
+subTimes = [0; sort(balTimes)]; % linspace(0, dt, subSamples+1); % +1 to include 0
 
-%% SOC State Update
-% Change in SOC as a result of series pack charging/discharging
+if subTimes(end) < dt, subTimes = [subTimes; dt]; end
 
-SOC = predMdl.SOC.A * prevSOC + (predMdl.SOC.B1 .* (curr(:) * dt));
-
-%% RC Voltage Updates
-% [V1, V2] = getRC_Volt(predMdl, dt, curr(:), SOC(:), mean(prevTemp)', ...
-%    prevV1, prevV2); % Current should be a negative row vector for each cell using this voltage model
-
-prevVRc = [prevV1(:)'; prevV2(:)'];
-prevVRc = prevVRc(:);
-in_U = repmat(curr(:)', 2, 1);
-in_U = in_U(:); % Force vector to column
-Vrc = predMdl.Volt.A * prevVRc + predMdl.Volt.B .* in_U;
-Vrc = reshape(Vrc, 2, NUMCELLS);
-V1 = Vrc(1, :); % Voltage drop across in RC pair 1
-V2 = Vrc(2, :); % Voltage drop across in RC pair 2 
-
-
-%% Temperature Update
-input = [(curr(:)'.^2); repmat(Tf, 1, NUMCELLS)]; input = input(:);
-
-Temp = predMdl.Temp.A * prevTemp_flat + ...
-    predMdl.Temp.B * input;
-
-Temp = reshape(Temp, 2, NUMCELLS);
+for count = 2:length(subTimes) %  Start count from 2 since count=1 is always 0
+    subTime = ones(NUMCELLS, 1) * (subTimes(count) - subTimes(count-1));
+    balCurr = predMdl.Curr.actualBalCurr .* (balTimes > subTimes(count-1)); % Find and assign currents to cells that are still balancing
+    psuCurr = psu_AmpSec / dt;
+    curr = combineCurrents(psuCurr, balCurr, predMdl);
+    
+    prevSOC = x(xIND.SOC, 1);
+    prevTemp = [x(xIND.Tc, 1), x(xIND.Ts, 1)]'; prevTemp_flat = prevTemp(:);
+    prevV1 =  x(xIND.V1, 1);
+    prevV2 =  x(xIND.V2, 1);
+    
+    %% SOC State Update
+    % Change in SOC as a result of series pack charging/discharging
+    
+    SOC = predMdl.SOC.A * prevSOC + (predMdl.SOC.B1 .* (curr(:) * dt));
+    
+    %% RC Voltage Updates
+    % [V1, V2] = getRC_Volt(predMdl, dt, curr(:), SOC(:), mean(prevTemp)', ...
+    %    prevV1, prevV2); % Current should be a negative row vector for each cell using this voltage model
+    
+    prevVRc = [prevV1(:)'; prevV2(:)'];
+    prevVRc = prevVRc(:);
+    in_U = repmat(curr(:)', 2, 1);
+    in_U = in_U(:); % Force vector to column
+    
+    A_tempo = repmat(predMdl.Volt.A_cont, NUMCELLS, 1) .* eye(NUMCELLS * 2);
+    subTime_Volt = [subTime, subTime]'; subTime_Volt = subTime_Volt(:);
+    A_Volt = expm(A_tempo .* subTime_Volt);
+    B_Volt = A_tempo\(A_Volt  - eye(size(A_Volt))) * predMdl.Volt.B_cont(:);
+    
+    Vrc = A_Volt * prevVRc + B_Volt .* in_U;
+    Vrc = reshape(Vrc, 2, NUMCELLS);
+    V1 = Vrc(1, :); % Voltage drop across in RC pair 1
+    V2 = Vrc(2, :); % Voltage drop across in RC pair 2
+    
+    
+    %% Temperature Update
+    % Discretize A and B
+    subTime_Temp = [subTime, subTime]'; subTime_Temp = subTime_Temp(:);
+    A_Temp = expm(predMdl.Temp.A_cont .* subTime_Temp);
+    B_Temp = predMdl.Temp.A_cont\(A_Temp - eye(size(A_Temp,1))) * predMdl.Temp.B_cont;
+    
+    input = [(curr(:)'.^2); repmat(Tf, 1, NUMCELLS)]; input = input(:);
+    Temp = A_Temp*prevTemp_flat(:) + B_Temp*input;
+    
+    Temp = reshape(Temp, 2, NUMCELLS);
+    
+    %% Tie it off
+    x = [SOC; V1(:); V2(:); Temp(1, :)'; Temp(2, :)'; curr(:)];
+end
 
 %% Tie it off
-xk1 = [SOC; V1(:); V2(:); Temp(1, :)'; Temp(2, :)'; curr(:)];
+xk1 = x;
+
 end
 
 function [Vrc1, Vrc2] =  getRC_Volt(mdl, dt, curr, SOC, prevTemp, prevV1, prevV2)
