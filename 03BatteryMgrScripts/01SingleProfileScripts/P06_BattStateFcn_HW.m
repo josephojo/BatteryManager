@@ -53,7 +53,7 @@ for count = 2:length(subTimes) %  Start count from 2 since count=1 is always 0
     %% SOC State Update
     % Change in SOC as a result of series pack charging/discharging
     
-    SOC = predMdl.SOC.A * prevSOC + (predMdl.SOC.B1 .* (curr(:) * dt));
+    SOC = predMdl.SOC.A * prevSOC + (predMdl.SOC.B1 .* (curr(:) .* subTime));
     
     %% RC Voltage Updates
     % [V1, V2] = getRC_Volt(predMdl, dt, curr(:), SOC(:), mean(prevTemp)', ...

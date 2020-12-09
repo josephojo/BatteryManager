@@ -93,10 +93,10 @@ prevTime = 0; prevElapsed = 0;
 % USE_PARALLEL = true;
 USE_PARALLEL = false;
 
-% Info from MCU (Low Level Controller)
-VPLM_ON_PERIOD = 1;
-VPLM_OFF_PERIOD = 3;
-BalancerTaskRate = 15.625; % in ms. Task rate
+% % Info from MCU (Low Level Controller)
+% VPLM_ON_PERIOD = 1;
+% VPLM_OFF_PERIOD = 3;
+% BalancerTaskRate = 15.625; % in ms. Task rate
 
 
 try
@@ -109,7 +109,7 @@ try
 
 %     MIN_BAL_CURR = [-1.165, -1.271, -1.244, -1.179]';
 %     MAX_BAL_CURR = [2.000, 1.878, 1.883, 1.866]';
-    MIN_BAL_CURR = [-0.5, -0.5, -0.5, -0.5]';
+    MIN_BAL_CURR = 0; %[-0.5, -0.5, -0.5, -0.5]';
     MAX_BAL_CURR = 2; % [0.5, 0.5, 0.5, 0.5]';
 
 catch ME
@@ -388,7 +388,7 @@ battData.curr           = cells.curr(cellIDs)'; % zeros(1, NUMCELLS);
 % Using OCV vs SOC to initialize the cell SOCs based on their resting voltages
 [~, minIndSOC] = min(  abs( OCV - cells.volt(cellIDs)' )  );
 % initialSOCs = SOC(minIndSOC, 1); 
-initialSOCs = [0.54; 0.5450;0.540;0.600]; % [0.504; 0.5466; 0.5933; 0.546];
+initialSOCs = [0.5367; 0.458;0.4642;0.51]; % [0.504; 0.5466; 0.5933; 0.546];
 cells.prevSOC(cellIDs) = initialSOCs;
 prevSOC = mean(initialSOCs);
 
@@ -465,8 +465,8 @@ try
 %         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Max =  inf;
         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Min =  ANPOT_Target;
         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).ScaleFactor =  1;
-        mpcObj.OV(i + (yANPOT-1) * NUMCELLS).MinECR =  0;
-        mpcObj.OV(i + (yANPOT-1) * NUMCELLS).MaxECR =  0;
+%         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).MinECR =  0;
+%         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).MaxECR =  0;
     
     end
     
@@ -724,13 +724,13 @@ try
                 
                 
                 % Set power supply current
-                curr = abs(optPSU_AmpSec); % PSU Current. Using "curr" since script in nect line uses "curr"
+                curr = abs(optPSU_AmpSec)/sampleTime; % PSU Current. Using "curr" since script in nect line uses "curr"
                 script_charge;
                                
                 % Disable Balancing if SOC is past range. MPC won't optimize
                 % for Balance currents past this range
                 if BalanceCellsFlag == true
-                    bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = bal_AmpSec;
+%                     bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = bal_AmpSec;
                     
                     % send balance charges to balancer
                     bal.SetBalanceCharges(balBoard_num, bal_AmpSec); % Send charges in As
@@ -758,8 +758,8 @@ try
                 SOC_Targets(end+1, :) = SOC_Target';
 %                 BalSOC_Targets(end+1, :) = balSOCTarget';
                 
-                battData.balCurr = [battData.balCurr; bal_AmpSec'];
-                battData.optPSUCurr  = [battData.optPSUCurr ; optPSU_AmpSec];
+                battData.balCurr = [battData.balCurr; (bal_AmpSec./sampleTime)'];
+                battData.optPSUCurr  = [battData.optPSUCurr ; optPSU_AmpSec./sampleTime];
                 
                 battData.time           = [battData.time        ; tElapsed_plant   ]; ind = 1;
                 battData.volt           = [battData.volt        ; reshape(cells.volt(cellIDs), 1, [])]; ind = ind + 1;
@@ -793,7 +793,7 @@ try
                     currStr = currStr + sprintf("Curr %d = %.4f\n", i, battData.curr(end,i));
                     socStr = socStr + sprintf("SOC %d = %.4f\n", i, battData.SOC(end, i));
                 end
-                psuStr = psuStr + sprintf("PSUCurr = %.4f A", optPSU_AmpSec(1));
+                psuStr = psuStr + sprintf("PSUCurr = %.4f A", optPSU_AmpSec(1)/sampleTime);
                 
                 disp(newline)
                 disp(num2str(tElapsed_plant,'%.2f') + " seconds");
