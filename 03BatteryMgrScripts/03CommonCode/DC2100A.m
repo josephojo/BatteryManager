@@ -75,6 +75,12 @@ classdef DC2100A < handle
     %   Note that the moment the object is defined, the code starts
     %   communicating with the MCU connected to the board.
     %
+    % CAUTION: To ensure timing is proper (balancing completes when it is
+    % supposed to), make sure that
+    % LTC3300.Cell_Balancer.BALANCE_TIME_RESOLUTION LTC3300.m] =
+    % BALANCE_TASK_RATE [Balancer.h]
+    %
+    %
     % ####################       Change Log       #########################
     %----------------------------------------------------------------------
     % REVISION	DATE-YYMMDD  |  CHANGE                                      
@@ -400,6 +406,8 @@ classdef DC2100A < handle
     properties (Dependent)
         PeakCurr_pri
         PeakCurr_sec
+        RMSCurr_Pri
+        RMSCurr_Sec
     end
     
     
@@ -835,16 +843,16 @@ classdef DC2100A < handle
         end
         
         
-        function [status, length] = USB_Process_Response(obj, length)
+        function [status, len] = USB_Process_Response(obj, len)
             %USB_Process_Response Converts String to the required data
             %based on the initial command to the string
             switch (obj.buf_in.peek())
                 
                 case DC2100A.USB_PARSER_HELLO_COMMAND
-                    helloStr = DC2100A.REMOVE_LEN(obj.buf_in, length);
+                    helloStr = DC2100A.REMOVE_LEN(obj.buf_in, len);
                     helloStr = helloStr(1:end-1); % remove the newline character
                     charHelloStr = char(DC2100A.HELLOSTRING);
-                    if(strcmp(helloStr, charHelloStr(1:length-1)))
+                    if(strcmp(helloStr, charHelloStr(1:len-1)))
                         status = ErrorCode.NO_ERROR;
                         if isvalid(obj.USBTimer)
                             if strcmpi(obj.USBTimer.Running, 'off')
@@ -874,10 +882,10 @@ classdef DC2100A < handle
                     end
                     
                     string1 = DC2100A.REMOVE_LEN(obj.buf_in,...
-                        length - strlength(DC2100A.DC2100A_MODEL_NUM_DEFAULT));
+                        len - strlength(DC2100A.DC2100A_MODEL_NUM_DEFAULT));
                     string2 = DC2100A.DC2100A_IDSTRING(...
                         strlength(DC2100A.DC2100A_MODEL_NUM_DEFAULT):...
-                        length - strlength(DC2100A.DC2100A_MODEL_NUM_DEFAULT));
+                        len - strlength(DC2100A.DC2100A_MODEL_NUM_DEFAULT));
                     
                     if (strcmp1(string1, string2))
                         obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_IDSTRING,...
@@ -887,7 +895,7 @@ classdef DC2100A < handle
                     
                 case DC2100A.USB_PARSER_DEFAULT_COMMAND
                     status = ErrorCode.NO_ERROR;
-                    if (DC2100A.REMOVE_LEN(obj.buf_in, length) ...
+                    if (DC2100A.REMOVE_LEN(obj.buf_in, len) ...
                             ~= DC2100A.USB_PARSER_DEFAULT_STRING)
                         obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_COMMAND,...
                             "Unknown command received by MCU.");
@@ -942,7 +950,7 @@ classdef DC2100A < handle
                                         + dec2hex(temp_error_data(byte_num), 2) + ", ";
                                 end
 %                                 disp("temp_error_data(1) = " + num2str(temp_error_data(1)));
-%                                 disp("Size of Board_Summary_Data: " + num2str(length(obj.Board_Summary_Data)));
+%                                 disp("Size of Board_Summary_Data: " + num2str(len(obj.Board_Summary_Data)));
 %                                 disp("num err = " + num2str(obj.Board_Summary_Data(temp_error_data(1) +1).Volt_Sum, 5))
                                 obj.eventLog.Add(ErrorCode.LTC3300_CRC, error_string,...
                                     "Volt_Sum: " + num2str(obj.Board_Summary_Data(temp_error_data(1) +1).Volt_Sum, 5) + "V"); % 5 here ensures 5 sig figs
@@ -1008,7 +1016,7 @@ classdef DC2100A < handle
                             % If this is a board we don't know, then this is a failed response
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, length - index));
+                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
                         else
                             % get the ov flags
@@ -1063,7 +1071,7 @@ classdef DC2100A < handle
                                     end
                                     
                                     % Create error log entry
-                                    if ~strcmp(condition_string, "")
+                                    if strcmp(condition_string, "UV")
                                         obj.eventLog.Add(ErrorCode.OVUV,...
                                             "Board: " + num2str(board_num)...
                                             + " " + condition_string + ". Flags = "...
@@ -1082,13 +1090,12 @@ classdef DC2100A < handle
                                             + " " + condition_string + ". UV has occurred in Cells "...
                                             + strjoin(string(UV_cells(1:end-1)), ', ') + ", and " + string(UV_cells(end)));
                                         end
-                                    else
+                                    elseif strcmp(condition_string, "OV")
                                         obj.eventLog.Add(ErrorCode.OVUV,...
                                             "Board: " + num2str(board_num)...
-                                            + " returned from OV/UV" + ". Flags = "...
+                                            + " " + condition_string + ". Flags = "...
                                             + dec2hex(temp_ov_flags, 3) + dec2hex(temp_uv_flags, 3));
-                                        
-                                        OV_Map = flip(dec2bin(temp_uv_flags, 12)); % Flip vector to lsb first
+                                        OV_Map = flip(dec2bin(temp_ov_flags, 12)); % Flip vector to lsb first
                                         OV_cells = find(OV_Map == '1');
                                         if length(OV_cells) == 1
                                             obj.eventLog.Add(ErrorCode.OVUV,...
@@ -1099,8 +1106,13 @@ classdef DC2100A < handle
                                             obj.eventLog.Add(ErrorCode.OVUV,...
                                             "Board: " + num2str(board_num)...
                                             + " " + condition_string + ". OV has occurred in Cells "...
-                                            + strjoin(string(OV_cells(1:end-1)), ', ') + ", and " + string(UV_cells(end)));
+                                            + strjoin(string(OV_cells(1:end-1)), ', ') + ", and " + string(OV_cells(end)));
                                         end
+                                    else
+                                         obj.eventLog.Add(ErrorCode.OVUV,...
+                                            "Board: " + num2str(board_num)...
+                                            + " returned from OV/UV" + ". Flags = "...
+                                            + dec2hex(temp_ov_flags, 3) + dec2hex(temp_uv_flags, 3));
                                     end
                                 end
                             end
@@ -1309,7 +1321,7 @@ classdef DC2100A < handle
                         if board_num >= DC2100A.MAX_BOARDS
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, length - index));
+                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
                         else
                             %  get the model number
@@ -1402,7 +1414,7 @@ classdef DC2100A < handle
                         if board_num >= DC2100A.MAX_BOARDS
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, length - index));
+                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
                         else
                             % get the timestamp
@@ -1525,7 +1537,7 @@ classdef DC2100A < handle
                             % If this is a board we don't know, then this is a failed response
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, length - index));
+                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
                         else
                             % get the timestamp
@@ -1635,7 +1647,7 @@ classdef DC2100A < handle
                             % If this is a board we don't know, then this is a failed response
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, length - index));
+                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
                         else
                             % get the passive balancer values
@@ -1664,7 +1676,7 @@ classdef DC2100A < handle
                             % If this is a board we don't know, then this is a failed response
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, length - index));
+                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
                         else
                             % get the cell present values
@@ -1722,7 +1734,7 @@ classdef DC2100A < handle
                             % If this is a board we don't know, then this is a failed response
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, length - index));
+                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
                         else
                             % get the board temperature adc values
@@ -1752,7 +1764,7 @@ classdef DC2100A < handle
                         if board_num >= DC2100A.MAX_BOARDS
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, length - index));
+                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
                         else
                             % get the number of bytes read
@@ -1772,10 +1784,10 @@ classdef DC2100A < handle
                             else
                                 
                                 % Add to the length to wait the number of data bytes actually in this response.
-                                length = length + (bytes_read - 1) * 2;      % subtract the command byte, to add 2 ascii characters per register byte
+                                len = len + (bytes_read - 1) * 2;      % subtract the command byte, to add 2 ascii characters per register byte
                                 ics_read = floor((bytes_read - 1) / 2);   % each ic requires 4 ascii bytes per register
                                 
-                                if (obj.buf_in.size < length - index)
+                                if (obj.buf_in.size < len - index)
                                     % If the full response has not been received, exit and wait for it without deleting anything from the buffer
                                     status = ErrorCode.USB_PARSER_NOTDONE;
                                 else
@@ -1826,7 +1838,7 @@ classdef DC2100A < handle
                             % If this is a board we don't know, then this is a failed response
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
                                 "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, length - index));
+                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
                         else
                             % get the board balance states
@@ -1878,9 +1890,22 @@ classdef DC2100A < handle
                                 
                                 obj.Timed_Balancers(board_num +1, cell_num +1)...
                                     .bal_timer = balance_timer(cell_num +1);
+                                
+                                % Set the current of each cell based on
+                                % whether it is charging or not
+                                if balance_timer(cell_num +1) ~= 0
+                                    if balance_action(cell_num +1) == LTC3300.Cell_Balancer.BALANCE_ACTION.Charge
+                                        obj.Currents(board_num +1, cell_num +1) = -obj.RMSCurr_Pri(cell_num +1);
+                                    elseif balance_action(cell_num +1) == LTC3300.Cell_Balancer.BALANCE_ACTION.Discharge
+                                        obj.Currents(board_num +1, cell_num +1) = obj.RMSCurr_Pri(cell_num +1);
+                                    end
+                                else
+                                    obj.Currents(board_num +1, cell_num +1) = 0; % Not Charging or Discharging since timer is off
+                                end
                             end
-                            % #ForTest
-%                             obj.eventLog.Add(ErrorCode.NO_ERROR,...
+                            
+%                         % #ForTest
+%                         obj.eventLog.Add(ErrorCode.NO_ERROR,...
 %                         "Action: " + num2str([balance_action(3:6)]) ...
 %                         + ". Timer: " + num2str([balance_timer(3:6)]));
                             
@@ -1926,8 +1951,8 @@ classdef DC2100A < handle
                             index = index + num_bytes;
                             
                             if item_num == DC2100A.EEPROM_Item_Type.Cap
-                                length = length + (4 * DC2100A.MAX_CELLS);
-                                if (obj.buf_in.size < length - index)
+                                len = len + (4 * DC2100A.MAX_CELLS);
+                                if (obj.buf_in.size < len - index)
                                     status = ErrorCode.USB_PARSER_NOTDONE;
                                 else
                                     for cell_num = 0:DC2100A.MAX_CELLS -1
@@ -1942,8 +1967,8 @@ classdef DC2100A < handle
                                 end
                                 
                             elseif item_num == DC2100A.EEPROM_Item_Type.Current
-                                length = length + (4 * DC2100A.MAX_CELLS);
-                                if (obj.buf_in.size < length - index)
+                                len = len + (4 * DC2100A.MAX_CELLS);
+                                if (obj.buf_in.size < len - index)
                                     status = ErrorCode.USB_PARSER_NOTDONE;
                                 else
                                     for cell_num = 0:DC2100A.MAX_CELLS -1
@@ -2536,11 +2561,11 @@ classdef DC2100A < handle
             %                               1 to (LTC3300.NUM_CELLS * DC2100A.NUM_LTC3300).
             %       balance_timer       : Balancer Durations or times in
             %                               seconds. Decimal notation is in
-            %                               increments of 0.0625 otherwise it
-            %                               rounds it down to nearest 0.625.
+            %                               increments of 0.020 otherwise it
+            %                               rounds it down to nearest 0.20.
             %                               This happens due to the task
             %                               rate of the balancer task in
-            %                               the FW. It runs every 250ms.
+            %                               the FW. It runs every 50ms.
             %
             
             balancer_error = false;
@@ -2557,12 +2582,16 @@ classdef DC2100A < handle
             end
             
             for cell_num = 0 : DC2100A.MAX_CELLS -1
-                if bal_actions(cell_num +1) == LTC3300.Cell_Balancer.BALANCE_ACTION.None...
+                if bal_actions(cell_num +1) == LTC3300.Cell_Balancer.BALANCE_ACTION.None... % Notify user when asked to do nothing for the specified period
                         && balance_timer(cell_num +1) ~= 0
                     % If timed balance settings do not make sense, flag error to popup message box instead of write to the board.
                     balancer_error = true; 
                 else
                     % If timed balance settings are reasonable, then write them to the board
+                    % If bal_action =
+                    % LTC3300.Cell_Balancer.BALANCE_ACTION.Charge, timer
+                    % just gets assigned to balancer_state since 0 is
+                    % communicated to the board a chrage command
                     balancer_state = uint16(balance_timer(cell_num +1) / LTC3300.Cell_Balancer.BALANCE_TIME_RESOLUTION);
                     if (balance_timer(cell_num +1) ~= 0) ...
                             && bal_actions(cell_num +1) == LTC3300.Cell_Balancer.BALANCE_ACTION.Discharge
@@ -2578,7 +2607,6 @@ classdef DC2100A < handle
                     dataString = dataString + dec2hex(balancer_state, 4);
                 end
             end
-            
             if balancer_error == true
                 errordlg("A Timed Balance Value Must be associated with a Charge or Discharge command."...
                     +newline + "Unable to write commands.", ...
@@ -2606,7 +2634,6 @@ classdef DC2100A < handle
             % Note that the whole system will start balancing.  
             % The selected board is the only one that will reply with its balancing data for display, however.
             obj.buf_out.add(DC2100A.USB_PARSER_TIMED_BALANCE_COMMAND + "B" + dec2hex(obj.selectedBoard, 2));
-            
         end
         
         
@@ -2943,7 +2970,7 @@ classdef DC2100A < handle
             num_currents = length(current);
             if num_currents == DC2100A.MAX_CELLS
                 curr2Send = current;
-                obj.Currents(board_num, :) = current(1, logical(bal.cellPresent(1, :)));
+%                 obj.Currents(board_num, :) = current(1, logical(bal.cellPresent(1, :)));
                 
             elseif num_currents == obj.numCells(board_num +1)
                 curr2Send = zeros(DC2100A.MAX_CELLS, 1);
@@ -2994,7 +3021,7 @@ classdef DC2100A < handle
             num_charges = length(charges);
             if num_charges == DC2100A.MAX_CELLS
                 charges2Send = charges;
-                obj.Currents(board_num, :) = charges(1, logical(bal.cellPresent(1, :)));
+%                 obj.Currents(board_num, :) = charges(1, logical(bal.cellPresent(1, :)));
                 
             elseif num_charges == obj.numCells(board_num +1)
                 charges2Send = zeros(DC2100A.MAX_CELLS, 1);
@@ -3216,16 +3243,39 @@ classdef DC2100A < handle
             obj.eventLog.Add(ErrorCode.EXCEPTION, mexStr); % Show the exception on the Error Logger app
         end
         
+    end
+        
+    methods % Get and Set Functions
         function peakcurr = get.PeakCurr_pri(obj)
-            peakCurr = obj.Vsens / obj.Rsens_P;
+            peakcurr = obj.Vsens / obj.Rsens_P;
         end
         
         function peakcurr = get.PeakCurr_sec(obj)
-            peakCurr = obj.Vsens / obj.Rsens_S;
+            peakcurr = obj.Vsens / obj.Rsens_S;
         end
         
+        function rms_pri = get.RMSCurr_Pri(obj)
+            V_stack = obj.Stack_Summary_Data.Volt_Sum;
+            board_num = 0;
+            rms_pri = obj.PeakCurr_pri * obj.cellPresent(board_num +1, :) .* ...
+                sqrt(V_stack ./ ...
+                (...
+                    3* ( V_stack + (obj.numCells  * ...
+                    obj.Voltages(board_num +1, :))))...
+                );
+        end
+        
+        function rms_sec = get.RMSCurr_Sec(obj)
+            V_stack = obj.Stack_Summary_Data.Volt_Sum;
+            board_num = 0 +1;
+            rms_sec = obj.PeakCurr_sec  * obj.cellPresent(board_num +1, :) .* ...
+                sqrt(V_stack ./ ...
+                (...
+                    3* ( V_stack + (obj.numCells  * ...
+                    obj.Voltages(board_num +1, :))))...
+                );
+        end 
     end
-    
     
     % Serial Connection Methods
     methods
