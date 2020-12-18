@@ -335,6 +335,7 @@ testData.cellCurr = [];
 testData.packCurr = [];
 testData.cellCap = [];
 testData.packCap = [];
+testData.temp = [];
 testData.time = [];
 
 
