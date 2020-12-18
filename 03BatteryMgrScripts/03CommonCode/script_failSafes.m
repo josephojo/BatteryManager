@@ -1,54 +1,57 @@
 % Checks to see if limits are reached
-for cellID = cellIDs
-%     if cells.coreTemp(cellID) > battCoreTempLimit
-%         error = sprintf("Core TEMP for " + cellID + " has Exceeded Limit:  %.2f ",...
-%             cells.coreTemp(cellID));
-%         warning(error);
-%         clear('thermo');
-%         save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-%         script_resetDevices
-%         waitTS = waitTillTemp('core','cellIDs', cellID, 'temp', 35);
-%         battTS = appendBattTS2TS(battTS, waitTS);
-%         script_initializeDevices;
-%         %     errorCode = 1;
-%     elseif cells.surfTemp(cellID) > batteryParam.maxSurfTemp(cellID)
-%         error = sprintf("Surface TEMP for " + cellID + " has Exceeded Limit:  %.2f ", cells.surfTemp(cellID));
-%         warning(error);
-%         clear('thermo');
-%         save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-%         script_resetDevices;
-%         waitTS = waitTillTemp('surf','cellIDs', cellID, 'temp', 35);
-%         battTS = appendBattTS2TS(battTS, waitTS);
-%         script_initializeDevices;
-%         %     errorCode = 1;
-%     else
-    if cells.volt(cellID) <= batteryParam.minVolt(cellID)
+for cell_Ind = 1:numCells_Ser
+    %     if cells.coreTemp(battID) > battCoreTempLimit
+    %         error = sprintf("Core TEMP for " + cellID + " has Exceeded Limit:  %.2f ",...
+    %             cells.coreTemp(battID));
+    %         warning(error);
+    %         clear('thermo');
+    %         save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+    %         script_resetDevices
+    %         waitTS = waitTillTemp('core','battID', battID, 'temp', 35);
+    %         battTS = appendBattTS2TS(battTS, waitTS);
+    %         script_initializeDevices;
+    %         %     errorCode = 1;
+    %     elseif cells.surfTemp(battID) > batteryParam.maxSurfTemp(battID)
+    %         error = sprintf("Surface TEMP for " + battID + " has Exceeded Limit:  %.2f ", cells.surfTemp(battID));
+    %         warning(error);
+    %         clear('thermo');
+    %         save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+    %         script_resetDevices;
+    %         waitTS = waitTillTemp('surf','battID', battID, 'temp', 35);
+    %         battTS = appendBattTS2TS(battTS, waitTS);
+    %         script_initializeDevices;
+    %         %     errorCode = 1;
+    %     else
+    if testData.cellVolt(end, cell_Ind) <= batteryParam.minVolt(battID)/numCells_Ser % Dividing by numCells in series since minVolt is for the series stack
         script_queryData;
-        if cells.volt(cellID) <= batteryParam.minVolt(cellID)
-            error = sprintf("Battery VOLTAGE for " + cellID + " is Less than Limit: %.2f V", cells.volt(cellID));
+        if testData.cellVolt(end, cell_Ind) <= batteryParam.minVolt(battID)/numCells_Ser % Dividing by numCells in series since minVolt is for the series stack
+            error = sprintf("Battery VOLTAGE for Cell("+cell_Ind+", :) in " + battID + " is Less than Limit: %.2f V", testData.cellVolt(end, cell_Ind));
             warning(error);
             errorCode = 1;
             testStatus = "stop";
         end
-    elseif cells.volt(cellID) >= batteryParam.maxVolt(cellID)
-        error = sprintf("Battery VOLTAGE for " + cellID + " is Greater than Limit: %.2f V", cells.volt(cellID));
+    elseif testData.cellVolt(end, cell_Ind) >= batteryParam.maxVolt(battID)/numCells_Ser % Dividing by numCells in series since maxVolt is for the series stack
+        script_queryData; % Check again
+        if testData.cellVolt(end, cell_Ind) >= batteryParam.maxVolt(battID)/numCells_Ser % Dividing by numCells in series since maxVolt is for the series stack
+            error = sprintf("Battery VOLTAGE for Cell("+cell_Ind+", :) in " + battID + " is Greater than Limit: %.2f V", testData.cellVolt(end, cell_Ind));
+            warning(error);
+            errorCode = 1;
+            testStatus = "stop";
+        end
+    elseif testData.cellCurr(end, cell_Ind) < batteryParam.minCurr(battID)/numCells_Par % During Charge
+        error = sprintf("Battery CURRENT for Cell("+cell_Ind+", :) in " + battID + " is Less than Limit: %.2f A", testData.cellCurr(end, cell_Ind));
         warning(error);
         errorCode = 1;
         testStatus = "stop";
-    elseif cells.curr(cellID) < batteryParam.minCurr(cellID) % During Charge
-        error = sprintf("Battery CURRENT for " + cellID + " is Less than Limit: %.2f A", packCurr);
+    elseif testData.cellCurr(end, cell_Ind) > batteryParam.maxCurr(battID)/numCells_Par % During Discharge. Dividing here since maxCurr is for entire parallel stack
+        error = sprintf("Battery CURRENT for Cell("+cell_Ind+", :) in " + battID + " is Greater than Limit: %.2f A", testData.cellCurr(end, cell_Ind));
         warning(error);
         errorCode = 1;
         testStatus = "stop";
-    elseif cells.curr(cellID) > batteryParam.maxCurr(cellID) % During Discharge
-        error = sprintf("Battery CURRENT for " + cellID + " is Greater than Limit: %.2f A", packCurr);
-        warning(error);
-        errorCode = 1;
-        testStatus = "stop";
-    elseif cells.SOC(cellID) > 1.05 && trackSOCFS == true
-        warning("Battery SOC for " + cellID + " is Greater than 100%%:  %.2f%%",cells.SOC(cellID)*100);
-    elseif cells.SOC(cellID) <= -0.005  && trackSOCFS == true
-        warning("Battery SOC for " + cellID + " is Less than 0%%:  %.2f%%",cells.SOC(cellID)*100);
+    elseif testData.cellSOC(end, cell_Ind) > 1.05 && trackSOCFS == true
+        warning("Battery SOC for Cell("+cell_Ind+", :) in " + battID + " is Greater than 100%%:  %.2f%%",testData.cellSOC(end, cell_Ind)*100);
+    elseif testData.cellSOC(end, cell_Ind) <= -0.005  && trackSOCFS == true
+        warning("Battery SOC for Cell("+cell_Ind+", :) in " + battID + " is Less than 0%%:  %.2f%%",testData.cellSOC(end, cell_Ind)*100);
     end
 end
 
@@ -79,9 +82,7 @@ end
 if errorCode == 1
     % Save Battery Parameters
     save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-    if ~strcmpi(cellConfig, 'single')
-        save(dataLocation + "007PackParam.mat", 'packParam');
-    end
+
     notifyOwnerEmail(error)
 end
 

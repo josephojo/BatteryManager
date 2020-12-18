@@ -1,4 +1,4 @@
-function [battTS, cells] = chargeToSOC(targSOC, chargeCurr, varargin)
+function testData = chargeToSOC(targSOC, chargeCurr, varargin)
 %chargeToSOC Charges to the specified SOC based on the charge current
 %specified
 %
@@ -11,7 +11,7 @@ function [battTS, cells] = chargeToSOC(targSOC, chargeCurr, varargin)
 %			trig1_startTime	= [10.0], 		: How long into the parent function to trigger. Can be an array of times (s)
 %			trig1_duration	= [2.0],  		: How long should the trigger last
 %											
-%			cellIDs       	= [],     		: IDs of Cells being tested. If parallel specify all cells in string array
+%			battID       	= [],     		: ID of Cell/Pack being tested.
 %			caller      	= "cmdWindow", 	: Specifies who the parent caller is. The GUI or MatLab's cmd window. Implementations between both can be different
 %			psuArgs       	= [],     		: Connection details of the power supply
 %			eloadArgs     	= [],     		: Connection details of the Electronic Load
@@ -39,7 +39,7 @@ param = struct(...
     'trig1_startTime',  [10.0], ... %           "
     'trig1_duration',   [2.0],  ... %           "
                     ...             %           "
-    'cellIDs',          [],     ... %           "
+    'battID',           [],     ... %           "
     'caller',      "cmdWindow", ... %           "
     'psuArgs',          [],     ... %           "
     'eloadArgs',        [],     ... %           "
@@ -79,7 +79,7 @@ end
 
 % ---------------------------------
 
-cellIDs = param.cellIDs;
+battID = param.battID;
 caller = param.caller;
 psuArgs = param.psuArgs;
 eloadArgs = param.eloadArgs;
@@ -157,7 +157,7 @@ try
         trackSOCFS = false; % Don't complain/warn the user if the SOC goes beyond 1 since we're tracking voltage
         %% CC mode
         % While the battery voltage is less than the limit (our 100% SOC)
-        while packVolt < highVoltLimit
+        while testData.packVolt(end, :) < highVoltLimit
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -179,7 +179,7 @@ try
         
         %% CV Mode
         % While the battery voltage is less than the limit (our 100% SOC) (CC mode)
-        while abs(packCurr) > abs(cvMinCurr) % Cuz Charge current is negative
+        while abs(testData.packCurr(end, :)) > abs(cvMinCurr) % Cuz Charge current is negative
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -199,12 +199,13 @@ try
 
         end
         
-        batteryParam.soc(cellIDs) = 1; % 100% Charged
+        batteryParam.soc(battID) = 1; % 100% Charged
     else
         % While the current SOC is less than the specified soc
-        while packSOC < targSOC
+        while testData.packSOC(end, :) < targSOC
             %% CCCV, Measurements and FailSafes
-            if packVolt < highVoltLimit || abs(packCurr) > abs(cvMinCurr)
+            if testData.packVolt(end, :) < highVoltLimit ...
+                    || abs(testData.packCurr(end, :)) > abs(cvMinCurr)
                 %% Measurements
                 % Querys all measurements every readPeriod second(s)
                 if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -223,7 +224,7 @@ try
                 script_triggerDigitalPins;
 
             else
-                batteryParam.soc(cellIDs) = 1; % 100% Charged
+                batteryParam.soc(battID) = 1; % 100% Charged
                 break;
             end
         end
@@ -231,14 +232,11 @@ try
     
     % Save Battery Parameters
     save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-    if ~strcmpi(cellConfig, 'single')
-        save(dataLocation + "007PackParam.mat", 'packParam');
-    end
-    
+
     % Get Current File name
     [~, filename, ~] = fileparts(mfilename('fullpath'));
     % Save data
-    saveBattData(battTS, metadata, testSettings, cells, filename);
+    saveBattData(testData, metadata, testSettings, filename);
 
 catch MEX
     script_resetDevices;

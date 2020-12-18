@@ -242,10 +242,10 @@ elseif strcmpi(caller, "cmdWindow")
     %##########################################################################
     balPort = 'COM9';
     if exist('testSettings', 'var') && isfield(testSettings, 'cellConfig')...
-            && strcmpi(testSettings.cellConfig, 'series')
+            && (strcmpi(testSettings.cellConfig, 'series') || strcmpi(testSettings.cellConfig, 'SerPar'))
         if ~exist('bal','var') ...
                 || (isvalid(bal) && strcmpi(bal.serialStatus(), "Disconnected"))
-            bal = DC2100A(balPort, eventLog, 'Num_Cells', length(cellIDs));
+            bal = DC2100A(balPort, eventLog, 'Num_Cells', numCells_Ser);
         end
         wait(2); % Wait for the EEprom Data to be updated
     end

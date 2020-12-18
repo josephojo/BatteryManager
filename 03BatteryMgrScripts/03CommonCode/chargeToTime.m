@@ -1,4 +1,4 @@
-function [battTS, cells] = chargeToTime(targTime, chargeCurr, varargin)
+function testData = chargeToTime(targTime, chargeCurr, varargin)
 %chargeToTime Charges for the specified time based on the charge current
 %specified
 %
@@ -11,7 +11,7 @@ function [battTS, cells] = chargeToTime(targTime, chargeCurr, varargin)
 %			trig1_startTime	= [10.0], 		: How long into the parent function to trigger. Can be an array of times (s)
 %			trig1_duration	= [2.0],  		: How long should the trigger last
 %											
-%			cellIDs       	= [],     		: IDs of Cells being tested. If parallel specify all cells in string array
+%			battID       	= [],     		: ID of Cell/Pack being tested.
 %			caller      	= "cmdWindow", 	: Specifies who the parent caller is. The GUI or MatLab's cmd window. Implementations between both can be different
 %			psuArgs       	= [],     		: Connection details of the power supply
 %			eloadArgs     	= [],     		: Connection details of the Electronic Load
@@ -34,7 +34,7 @@ param = struct(...
     'trig1_startTime',  [10.0], ... %           "
     'trig1_duration',   [2.0],  ... %           "
                     ...             %           "
-    'cellIDs',          [],     ... %           "
+    'battID',           [],     ... %           "
     'caller',      "cmdWindow", ... %           "
     'psuArgs',          [],     ... %           "
     'eloadArgs',        [],     ... %           "
@@ -75,7 +75,7 @@ end
 
 % ---------------------------------
 
-cellIDs = param.cellIDs;
+battID = param.battID;
 caller = param.caller;
 psuArgs = param.psuArgs;
 eloadArgs = param.eloadArgs;
@@ -178,14 +178,11 @@ try
     
     % Save Battery Parameters
     save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-    if ~strcmpi(cellConfig, 'single')
-        save(dataLocation + "007PackParam.mat", 'packParam');
-    end
     
     % Get Current File name
     [~, filename, ~] = fileparts(mfilename('fullpath'));
     % Save data
-    saveBattData(battTS, metadata, testSettings, cells, filename);
+    saveBattData(testData, metadata, testSettings, filename);
     
 catch MEX
     script_resetDevices;

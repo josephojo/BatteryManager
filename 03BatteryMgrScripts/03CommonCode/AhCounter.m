@@ -12,7 +12,7 @@ function battTS = AhCounter(varargin)
 %           waitTime        = 1800          : Time in seconds to wait between both charge and discharge.  
 %                                               DEFAULT = 1800s
 %
-%			cellIDs       	= [],     		: IDs of Cells being tested. If parallel specify all cells in string array
+%			battID       	= [],     		: ID of Cell/Pack being tested.
 %			caller      	= "cmdWindow", 	: Specifies who the parent caller is. The GUI or MatLab's cmd window. Implementations between both can be different
 %			psuArgs       	= [],     		: Connection details of the power supply
 %			eloadArgs     	= [],     		: Connection details of the Electronic Load
@@ -36,7 +36,7 @@ param = struct(...
     'cRates',           1,      ... % General to most functions
     'waitTime',         1800,   ... %           "
     ...             %           "
-    'cellIDs',          [],     ... %           "
+    'battID',           [],     ... %           "
     'caller',      "cmdWindow", ... %           "
     'psuArgs',          [],     ... %           "
     'eloadArgs',        [],     ... %           "
@@ -78,7 +78,7 @@ end
 cRates = param.cRates;
 waitTime = param.waitTime;
 
-cellIDs = param.cellIDs;
+battID = param.battID;
 caller = param.caller;
 psuArgs = param.psuArgs;
 eloadArgs = param.eloadArgs;
@@ -104,7 +104,7 @@ dataLocation = newStr + "\01CommonDataForBattery\";
 try 
     % Load Table with cell information
     load(dataLocation + "007BatteryParam.mat", 'batteryParam')
-    cap = batteryParam.capacity(cellIDs); % Ah
+    cap = batteryParam.capacity(battID); % Ah
     
     disp("Counting Capacity ...");
     
@@ -122,46 +122,37 @@ try
     end
     
     % Step 1: Bring the cell  to Full Capacity
-    battTS_chrg = chargeToSOC(1, cRate_chrg*cap, 'cellIDs', cellIDs, 'testSettings', testSettings);
+    testData_chrg = chargeToSOC(1, cRate_chrg*cap, 'cellIDs', battID, 'testSettings', testSettings);
 
     % Step 2: Let the battery rest
-    battTS_Wait_Chrg = waitTillTime(waitTime, 'cellIDs', cellIDs, 'testSettings', testSettings);
-    battTS_temp = appendBattTS2TS(battTS_chrg, battTS_Wait_Chrg);
+    testData_Wait_Chrg = waitTillTime(waitTime, 'cellIDs', battID, 'testSettings', testSettings);
+    testData_temp = appendTestDataStruts(testData_chrg, testData_Wait_Chrg);
 
     % Step 3: Discharge to empty
     dischargeToEmpty; % there is an internal variable "battTS" in script
-    battTS = appendBattTS2TS(battTS_temp, battTS);
+    testData = appendTestDataStruts(testData_temp, testData);
 
-    
-    % Plot the data if true
-    if plotFigs == true
-        plotBattData(battTS);
-    end
     
     % Save data
     if errorCode == 0 && tElasped > 1
-        cellAhCap = abs(cells.AhCap(cellIDs));
-        if strcmpi(cellConfig, 'parallel')
-            batteryParam.capacity(cellIDs) = cellAhCap;
-        else
-            batteryParam.capacity(cellIDs) = cellAhCap;
+        packAhCap = abs(testData.packCap(end, :));
+        batteryParam.capacity(battID) = packAhCap;
+
+        % Store the individual cell Capacities as well if connected in
+        % series
+        if strcmpi(cellConfig, 'series') || strcmpi(cellConfig, 'SerPar')
+            cellAhCap = abs(testData.cellCap(end, :)');
+            batteryParam.cellCap(battID) = cellAhCap;
         end
         
-        if numCells > 1
-            fileName = "007_" + cellConfig + "_AhCount.mat";
-            save(dataLocation + fileName, 'battTS', 'cellIDs', 'cellAhCap');
-        else
-            fileName = "007_" + cellIDs(1) + "_AhCount.mat";
-            save(dataLocation + fileName, 'battTS', 'cellAhCap');
-        end
-        
-%         batteryParam.soc(cellIDs) = 0; % 0% SOC
-        
+        fileName = "007_" + battID + "_AhCount.mat";
+        save(dataLocation + fileName, 'testData', 'packAhCap', 'cellAhCap');
+                
         % Save Battery Parameters
         save(dataLocation + "007BatteryParam.mat", 'batteryParam');
         
         purpose = "To update capacity count for battery (pack).";
-        updateExpLogs(fileName, purpose, cellIDs, batteryParam);
+        updateExpLogs(fileName, purpose, battID, batteryParam);
 
     end
     

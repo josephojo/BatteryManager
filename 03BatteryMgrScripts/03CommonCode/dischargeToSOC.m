@@ -1,4 +1,4 @@
-function [battTS, cells] = dischargeToSOC(targSOC, dischargeCurr, varargin)
+function testData = dischargeToSOC(targSOC, dischargeCurr, varargin)
 %dischargeToSOC Discharges to the specified SOC based on the current provided
 %
 %   Inputs: 
@@ -10,7 +10,7 @@ function [battTS, cells] = dischargeToSOC(targSOC, dischargeCurr, varargin)
 %			trig1_startTime	= [10.0], 		: How long into the parent function to trigger. Can be an array of times (s)
 %			trig1_duration	= [2.0],  		: How long should the trigger last
 %											
-%			cellIDs       	= [],     		: IDs of Cells being tested. If parallel specify all cells in string array
+%			battID       	= [],     		: IDs of Cells being tested. If parallel specify all cells in string array
 %			caller      	= "cmdWindow", 	: Specifies who the parent caller is. The GUI or MatLab's cmd window. Implementations between both can be different
 %			psuArgs       	= [],     		: Connection details of the power supply
 %			eloadArgs     	= [],     		: Connection details of the Electronic Load
@@ -34,7 +34,7 @@ param = struct(...
     'trig1_startTime',  [10.0], ... %           "
     'trig1_duration',   [2.0],  ... %           "
                     ...             %           "
-    'cellIDs',          [],     ... %           "
+    'battID',           [],     ... %           "
     'caller',      "cmdWindow", ... %           "
     'psuArgs',          [],     ... %           "
     'eloadArgs',        [],     ... %           "
@@ -74,7 +74,7 @@ param = struct(...
 
 % ---------------------------------
 
-cellIDs = param.cellIDs;
+battID = param.battID;
 caller = param.caller;
 psuArgs = param.psuArgs;
 eloadArgs = param.eloadArgs;
@@ -153,7 +153,7 @@ try
     if targSOC == 0        
         trackSOCFS = false; % Don't complain/warn the user if the SOC goes below 0 since we're tracking voltage
         % While packVolt is greater than low limit
-        while packVolt >= lowVoltLimit
+        while testData.packVolt(end, :) >= lowVoltLimit
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -172,13 +172,11 @@ try
             script_triggerDigitalPins;
 
         end
-        batteryParam.soc(cellIDs) = 0; % 0% DisCharged
-        if ~strcmpi(cellConfig, 'single')
-            packParam.soc(packID) = 0;
-        end
+        batteryParam.soc(battID) = 0; % 0% DisCharged
+
     else
         % While SOC is greater than specified
-        while packSOC > targSOC
+        while testData.packSOC(end, :) > targSOC
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -202,14 +200,11 @@ try
     
     % Save Battery Parameters
     save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-    if ~strcmpi(cellConfig, 'single')
-        save(dataLocation + "007PackParam.mat", 'packParam');
-    end
     
     % Get Current File name
     [~, filename, ~] = fileparts(mfilename('fullpath'));
     % Save data
-    saveBattData(battTS, metadata, testSettings, cells, filename);
+    saveBattData(testData, metadata, testSettings, filename);
     
 catch MEX
     script_resetDevices;

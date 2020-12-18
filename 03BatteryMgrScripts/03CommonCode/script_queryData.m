@@ -16,13 +16,14 @@ if ~exist('testTimer', 'var')
 end
 
 % Capture Time
-tElasped = toc(testTimer) - timerPrev(1);
+tElapsed = toc(testTimer) - timerPrev(1);
 
 % Temperature Measurement for the stack. Each temp measurement is indicated
 % by the channel numbers they are connected to
 if ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.tempMeasDev, "Mod16Ch")
     if ~isempty(tempChnls)
-        %{
+       % Commented section uses Arduino and a single channel DAQ for TC measurements
+       %{
 % if useArd4Temp == 1
 %     % Use only the TC data (Hot_Junc) from Arduino
 % %     numCh = 1;
@@ -71,38 +72,43 @@ if ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDe
     % %Finds avg of total voltages collected at batt terminals and current sensor
     vBattp = voltPos / adcAvgCount;
     vBattn = voltNeg / adcAvgCount;
-    packVolt = round(vBattp - vBattn + 0.01, 3);
+    testData.packVolt(end+1, :) = round(vBattp - vBattn + 0.01, 3);
     
     adcAvgCounter = 0; voltPos = 0; voltNeg = 0;
     
     % Get cell measurements if available
-    if strcmpi(cellConfig, 'series')
+    if strcmpi(cellConfig, 'series') || strcmpi(cellConfig, 'SerPar')
         % Implementation coming soon.
     else
-        cells.volt(cellIDs) = packVolt; % Assign stack voltage to individual voltage
+        testData.cellVolt(end+1, :) = testData.packVolt(end, :); % Assign stack voltage to individual cell voltage
     end
     
 elseif ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDev, "powerDev")
     % Use Voltage Data from either PSU or ELOAD for Battery current
     if strcmpi(battState, "discharging")
-        packVolt = eload.MeasureVolt();
+        testData.packVolt(end+1, :) = eload.MeasureVolt();
     elseif strcmpi(battState, "charging")
-        packVolt = psu.measureVolt();
+        testData.packVolt(end+1, :) = psu.measureVolt();
     elseif strcmpi(battState, "idle")
-        packVolt = eload.MeasureVolt();
+        testData.packVolt(end+1, :) = eload.MeasureVolt();
     end
     
     % Get cell measurements if available
-    if strcmpi(cellConfig, 'series')
-        cells.volt(cellIDs) = bal.Voltages(1, logical(bal.cellPresent(1, :)));
+    if strcmpi(cellConfig, 'series') || strcmpi(cellConfig, 'SerPar')
+       % This is VERY bad to do!!! 
+       % Cells will most likely not be balanced at all times. 
+       % Only leaving this here since the powerDevs cannot sense individual cell voltages
+       testData.cellVolt(end+1, :) = testData.packVolt(end, :) / numCells_Ser; 
     else
-        cells.volt(cellIDs) = packVolt; % Assign stack voltage to individual voltage
+        testData.cellVolt(end+1, :) = testData.packVolt(end, :); % Assign stack voltage to individual voltage
     end
+    
 elseif ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDev, "balancer")
-    cells.volt(cellIDs) = bal.Voltages(1, logical(bal.cellPresent(1, :)))';
-    packVolt = bal.Board_Summary_Data.Volt_Sum;
+    balVolts = bal.Voltages(1, logical(bal.cellPresent(1, :)));
+    testData.cellVolt(end+1, :) = balVolts(:)'; % Placing these horizontally despite being data for series stack (since time is vertical).
+    testData.packVolt(end+1, :) = bal.Board_Summary_Data.Volt_Sum;
+    
 end
-
 
 % Current Measurement for the stack. Each cell is so far made to equal that of the stack
 if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "mcu")  % if strcmp(cellConfig, 'single') ~= true
@@ -123,43 +129,43 @@ if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDe
     
     adcAvgCounter = 0; currPos = 0; currNeg = 0; % ain1 = 0;
     
-    packCurr = -(cSigP_N1 - 2.4902)/0.1; % Negative for Charging, Pos for discharging
+    testData.packCurr(end+1, :) = -(cSigP_N1 - 2.4902)/0.1; % Negative for Charging, Pos for discharging
     
     if strcmpi(battState, "idle")
-        packCurr = 0.0;
+        testData.packCurr(end+1, :) = 0.0;
     end
     % Get cell measurements if available
-    if strcmpi(cellConfig, 'parallel')
+    if strcmpi(cellConfig, 'parallel') || strcmpi(cellConfig, 'SerPar')
         % Implementation coming soon.
     else
-        cells.curr(cellIDs) = packCurr; % Assign stack current to individual current
+        testData.cellCurr(end+1, :) = testData.packCurr(end, :); % Assign stack current to individual current
     end
     
 
 elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "powerDev") 
     % Use Current Data from either PSU or ELOAD for Battery current
     if strcmpi(battState, "discharging")
-        packCurr = eload.MeasureCurr();
+        testData.packCurr(end+1, :) = eload.MeasureCurr();
     elseif strcmpi(battState, "charging")
-        packCurr = -psu.measureCurr();
+        testData.packCurr(end+1, :) = -psu.measureCurr();
     elseif strcmpi(battState, "idle")
-        packCurr = 0.0;
+        testData.packCurr(end+1, :) = 0.0;
     end
     
     % Get cell measurements if available
-    if strcmpi(cellConfig, 'parallel')
+    if strcmpi(cellConfig, 'parallel') || strcmpi(cellConfig, 'SerPar')
         % Implementation coming soon.
     else
-        cells.curr(cellIDs) = packCurr; % Assign stack current to individual current
+        testData.cellCurr(end+1, :) = testData.packCurr(end, :); % Assign stack current to individual current
     end
 elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "balancer")
     % Use Current Data from either PSU or ELOAD for Pack current
     if strcmpi(battState, "discharging")
-        packCurr = eload.MeasureCurr(); % Discharge is positive
+        testData.packCurr(end+1, :) = eload.MeasureCurr(); % Discharge is positive
     elseif strcmpi(battState, "charging")
-        packCurr = -psu.measureCurr(); % Charging is negative
+        testData.packCurr(end+1, :) = -psu.measureCurr(); % Charging is negative
     elseif strcmpi(battState, "idle")
-        packCurr = 0.0;
+        testData.packCurr(end+1, :) = 0.0;
     end
     
     balCurr = bal.Currents(1, logical(bal.cellPresent(1, :)));
@@ -169,9 +175,7 @@ elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMe
     balActual_dchrg = T_dchrg * (balCurr(:) .* (logicalInd));
     balActual_chrg = T_chrg * (balCurr(:) .* (~logicalInd));
     balActual = balActual_chrg + balActual_dchrg;
-    cells.curr(cellIDs) = packCurr + balActual(:); % Actual Current in each cell
-
-%     cells.curr(cellIDs) = balEff * bal.Currents(1, logical(bal.cellPresent(1, :)) + packCurr);
+    testData.cellCurr(end+1, :) = testData.packCurr(end, :) + balActual(:)'; % Actual Current in each cell
 end
 
 
@@ -183,44 +187,48 @@ if ismember("SOC", testSettings.data2Record)
     timerPrev(4) = tmpT; % Update Current time to previous
     
     if ismember("Cap", testSettings.data2Record)
-        cells.AhCap(cellIDs) = cells.AhCap(cellIDs) + (cells.curr(cellIDs) * (deltaT/3600));
-        AhCap = AhCap + (packCurr * (deltaT/3600));
+        if isempty(testData.cellCap)
+            cellCap = 0;
+            packCap = 0;
+        else
+            cellCap = testData.cellCap(end, :);
+            packCap = testData.packCap(end, :);
+        end
+        testData.cellCap(end+1, :) = cellCap + (testData.cellCurr(end, :) * (deltaT/3600));
+        testData.packCap(end+1, :) = packCap + (testData.packCurr(end, :) * (deltaT/3600));
     end
     
-    if strcmpi(cellConfig, "series")
-        % Get Change in SOCs
-%         dSoc_bal = estimateDeltaSOC(cells.curr(cellIDs),...
-%             deltaT, cells.coulomb(cellIDs), cellConfig); % Leave right after cell curr update since it is used in SOC estimation
-%         dSoc_stack = estimateDeltaSOC(packCurr,...
-%             deltaT, coulombs, cellConfig); % Leave right after packCurr update since it is used in SOC estimation
-%         
-%         % Update cell SOCs
-%         cells.SOC(cellIDs) = cells.prevSOC(cellIDs) + (dSoc_bal + dSoc_stack);
-%         
-        cells.SOC(cellIDs) = estimateSOC(cells.curr(cellIDs),...
-            deltaT, cells.prevSOC(cellIDs), cells.coulomb(cellIDs)); 
-        packSOC = mean(cells.SOC(cellIDs));
+    if isempty(testData.cellSOC)
+        cellSOC = batteryParam.cellSOC{battID}';
+        packSOC = batteryParam.soc(battID); 
+    else
+        cellSOC = testData.cellSOC(end, :);
+        packSOC = testData.packSOC(end, :);
+    end
+    if strcmpi(cellConfig, "series") || strcmpi(cellConfig, 'SerPar')       
+        testData.cellSOC(end+1, :) = estimateSOC(testData.cellCurr(end, :),...
+            deltaT, cellSOC, (battProp.cellCap{battID}' * 3600)); % Capacity x 3600 = coulombs
+        testData.packSOC(end+1, :) = mean(testData.cellSOC(end, :));
        
     else
-        cells.SOC(cellIDs) = estimateSOC(cells.curr(cellIDs),...
-            deltaT, cells.prevSOC(cellIDs), coulombs);
-        packSOC = estimateSOC(packCurr, deltaT, prevSOC, coulombs);
+        testData.cellSOC(end+1, :) = estimateSOC(testData.cellCurr(end, :),...
+            deltaT, cellSOC, battProp.capacity(battID)*3600); % Capacity for cells is the same as for pack in a single/parallel config
+        testData.packSOC(end+1, :) = estimateSOC(testData.packCurr(end, :),...
+            deltaT, packSOC, battProp.capacity(battID)*3600); % Capacity x 3600 = coulombs
         
     end
     
-    % Update Previous SOCs
-    cells.prevSOC(cellIDs) = cells.SOC(cellIDs); % Update the current cell SOC as prev
-    prevSOC = packSOC; % Update the current SOC as prev
-    
+%     % Update Previous SOCs
+%     cells.prevSOC(cellIDs) = cells.SOC(cellIDs); % Update the current cell SOC as prev
+%     prevSOC = testData.packSOC(end+1, :); % Update the current SOC as prev
+%     
     % Store the SOC of the pack in for both cells in the stack
-    batteryParam.soc(cellIDs) = cells.SOC(cellIDs);
-    
-    if ~strcmpi(cellConfig, 'single')
-        if exist('packParam' , 'var'), packParam.soc(packID) = packSOC; end
-    end
-    
+    batteryParam.cellSOC{battID} = testData.cellSOC(end, :)';
+    batteryParam.soc(battID) = testData.packSOC(end, :);
+
 end
 
+%{
 % #DEP_01 - If this order changes, the order in "script_initializeVariables" 
 % should also be altered
 data = [packVolt, packCurr, packSOC, AhCap,...
@@ -231,30 +239,22 @@ data = [packVolt, packCurr, packSOC, AhCap,...
 
 
 battTS = addsample(battTS,'Data',data,'Time',tElasped);
+%}
+
+testData.time(end+1, :) = tElapsed;
 
 if caller == "gui"
     battData.data = data;
-    battData.time = tElasped;
+    battData.time = tElapsed;
     send(dataQ, battData);
 else
     
     if verbosity == 0
-        %     if tElasped - timerPrev(5) >= 1. % 2.2
-        %         disp(tElasped - timerPrev(5))
-        %         timerPrev(5) = tElasped;
         fprintf(".")
         dotCounter = dotCounter + 1;
         if dotCounter >= 60
             disp(newline)
-            disp(num2str(tElasped,'%.2f') + " seconds");
-            %             Tstr = sprintf("TC 1 = %.1f ºC\t\t\tTC 2 = %.2f ºC" ,thermoData(1), thermoData(2)); % \t\t\tTC 3 = %.1f ºC
-            %             Tstr = "";
-            %             for i = 1:numThermo
-            %                 Tstr = Tstr + sprintf("TC " + num2str(i) + " = %.2f ºC\t\t\t" ,thermoData(i));
-            %                 if mod(i, 2) == 0 && i ~= numThermo
-            %                    Tstr = Tstr + newline;
-            %                 end
-            %             end
+            disp(num2str(tElapsed,'%.2f') + " seconds");
             Tstr = "";
             for i = 1:length(tempChnls)
                 Tstr = Tstr + sprintf("TC@Ch" + tempChnls(i) + " = %.2fºC\t\t" ,thermoData(i));
@@ -264,32 +264,23 @@ else
             end
             
             Bstr = "";
-            for cellID = cellIDs           
-                Bstr = Bstr + sprintf("Volt " + cellID + " = %.2f V\t", cells.volt(cellID));
-                Bstr = Bstr + sprintf("Curr " + cellID + " = %.2f A\t", cells.curr(cellID));
-                Bstr = Bstr + sprintf("SOC " + cellID + " = %.2f\t", cells.SOC(cellID)*100);
-                Bstr = Bstr + sprintf("Ah " + cellID + " = %.3f Ah\t", cells.AhCap(cellID));
+            for seriesInd = 1:numCells_Ser           
+                Bstr = Bstr + sprintf("Volt(" + seriesInd + ", :) = %.2f V\t", testData.cellVolt(end, seriesInd));
+                Bstr = Bstr + sprintf("Curr(" + seriesInd + ", :) = %.2f A\t", testData.cellCurr(end, seriesInd));
+                Bstr = Bstr + sprintf("SOC(" + seriesInd + ", :) = %.2f\t",    testData.cellSOC(end, seriesInd)*100);
+                Bstr = Bstr + sprintf("Ah(" + seriesInd + ", :) = %.3f Ah\t",  testData.cellCap(end, seriesInd));
                 Bstr = Bstr + newline;
             end
             
             Bstr = Bstr + sprintf("\nPack Volt = %.4f V\tPack Curr = %.4f A\n" + ...
-                "Pack SOC = %.2f \t\tPack AH = %.3f\n\n", packVolt, packCurr,...
-                packSOC*100, AhCap);
+                "Pack SOC = %.2f \t\tPack AH = %.3f\n\n", testData.packVolt(end, :), testData.packCurr(end, :),...
+                testData.packSOC(end, :)*100, testData.packCap(end, :));
             fprintf(Tstr + newline);
             fprintf(Bstr);
             dotCounter = 0;
         end
-        %     end
     elseif verbosity == 1
-        disp(num2str(tElasped,'%.2f') + " seconds");
-        %             Tstr = sprintf("TC 1 = %.1f ºC\t\t\tTC 2 = %.2f ºC" ,thermoData(1), thermoData(2)); % \t\t\tTC 3 = %.1f ºC
-        %             Tstr = "";
-        %             for i = 1:numThermo
-        %                 Tstr = Tstr + sprintf("TC " + num2str(i) + " = %.2f ºC\t\t\t" ,thermoData(i));
-        %                 if mod(i, 2) == 0 && i ~= numThermo
-        %                    Tstr = Tstr + newline;
-        %                 end
-        %             end
+        disp(num2str(tElapsed,'%.2f') + " seconds");
         Tstr = "";
         for i = 1:length(tempChnls)
             Tstr = Tstr + sprintf("TC@Ch" + tempChnls(i) + " = %.2fºC\t\t" ,thermoData(i));
@@ -299,17 +290,17 @@ else
         end
 
         Bstr = "";
-        for cellID = cellIDs     
-            Bstr = Bstr + sprintf("Volt " + cellID + " = %.2f V\t", cells.volt(cellID));
-            Bstr = Bstr + sprintf("Curr " + cellID + " = %.2f A\t\t", cells.curr(cellID));
-            Bstr = Bstr + sprintf("SOC " + cellID + " = %.2f \t\t", cells.SOC(cellID)*100);
-            Bstr = Bstr + sprintf("Ah " + cellID + " = %.3f Ah\t", cells.AhCap(cellID));
+        for seriesInd = 1:numCells_Ser           
+            Bstr = Bstr + sprintf("Volt(" + seriesInd + ", :) = %.2f V\t", testData.cellVolt(end, seriesInd));
+            Bstr = Bstr + sprintf("Curr(" + seriesInd + ", :) = %.2f A\t", testData.cellCurr(end, seriesInd));
+            Bstr = Bstr + sprintf("SOC(" + seriesInd + ", :) = %.2f\t",    testData.cellSOC(end, seriesInd)*100);
+            Bstr = Bstr + sprintf("Ah(" + seriesInd + ", :) = %.3f Ah\t",  testData.cellCap(end, seriesInd));
             Bstr = Bstr + newline;
         end
 
-        Bstr = Bstr + sprintf("\tPack Volt = %.4f V\tPack Curr = %.4f A\n" + ...
-            "Pack SOC = %.2f \t\tPack AH = %.3f\n\n", packVolt, packCurr,...
-            packSOC*100, AhCap);
+        Bstr = Bstr + sprintf("\nPack Volt = %.4f V\tPack Curr = %.4f A\n" + ...
+                "Pack SOC = %.2f \t\tPack AH = %.3f\n\n", testData.packVolt(end, :), testData.packCurr(end, :),...
+                testData.packSOC(end, :)*100, testData.packCap(end, :));
         fprintf(Tstr + newline);
         fprintf(Bstr);
     end

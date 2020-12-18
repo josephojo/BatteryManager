@@ -44,11 +44,7 @@ try
 script_initializeVariables; % Run Script to initialize common variables
 script_initializeDevices; % Initialized devices like Eload, PSU etc.
 
-if strcmpi (cellConfig, 'parallel')
-    curr = (sum(batteryParam.ratedCapacity(cellIDs))*cRate_dchrg); % X of rated Capacity
-else
-    curr = batteryParam.ratedCapacity(cellIDs(1))*cRate_dchrg; % X of rated Capacity
-end
+curr = batteryParam.ratedCapacity(battID)*cRate_dchrg; % X of rated Capacity
 
 trackSOCFS = false;
 
@@ -65,7 +61,7 @@ script_discharge; % Run Script to begin/update discharging process
 
 
 % While SOC is greater than 5%
-while packVolt > lowVoltLimit    
+while testData.packVolt(end, :) > lowVoltLimit    
     %% Measurements
     % Querys all measurements every readPeriod second(s)
     if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -87,20 +83,14 @@ end
 
 
 batteryParam.soc(cellIDs) = 0; % 0% DisCharged
-if ~strcmpi(cellConfig, 'single')
-    packParam.soc(packID) = 0; % 0% DisCharged
-end
 
 % Save Battery Parameters
 save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-if ~strcmpi(cellConfig, 'single')
-    save(dataLocation + "007PackParam.mat", 'packParam');
-end
 
 % Get Current File name
 [~, filename, ~] = fileparts(mfilename('fullpath'));
 % Save data
-saveBattData(battTS, metadata, testSettings, cells, filename);
+saveBattData(testData, metadata, testSettings, filename);
 
 
 catch MEX
