@@ -19,7 +19,7 @@
 %% Initialize Variables and Devices
 try
     if ~exist('battID', 'var') || isempty(battID)
-        battID = ["D0"]; % ID in Cell Part Number (e.g BAT11-FEP-AA1). Defined again in initializeVariables
+        battID = ["AD0"]; % ID in Cell Part Number (e.g BAT11-FEP-AA1). Defined again in initializeVariables
     end
     
     if ~exist('caller', 'var')
@@ -63,7 +63,8 @@ try
     end
     
     script_initializeDevices; % Run Script to initialize control devices
-    verbosity = 2; % Data measurements are not displayed since the results from the MPC will be.
+    verbosity = 1; % Data measurements are fully displayed.
+%     verbosity = 2; % Data measurements are not displayed since the results from the MPC will be.
     balBoard_num = 0; % ID for the main balancer board
     
 %     wait(2); % Wait for the EEprom Data to be updated
@@ -357,15 +358,28 @@ battData.curr           = testData.cellCurr(end, :); % zeros(1, NUMCELLS);
 % Using OCV vs SOC to initialize the cell SOCs based on their resting voltages
 [~, minIndSOC] = min(  abs( OCV - testData.cellVolt(end, :) )  );
 % initialSOCs = SOC(minIndSOC, 1); 
-% initialSOCs = [0.54; 0.5450;0.540;0.600]; % [0.504; 0.5466; 0.5933; 0.546];
+% initialSOCs = [0.515; 0.585;0.5083;0.53]; % [0.504; 0.5466; 0.5933; 0.546];
+% testData.cellSOC(end, :) = initialSOCs;
 initialSOCs = testData.cellSOC(end, :)';
+
 
 battData.SOC            = initialSOCs(1:NUMCELLS, 1)';
 battData.Cap            = CAP;
 battData.AnodePot       = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
                             zeros(NUMCELLS, 1), initialSOCs)';
-ANPOT = battData.AnodePot;
+
+ANPOT = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
+            zeros(NUMCELLS, 1), initialSOCs)';
 testData.AnodePot = ANPOT; % Initialize AnodePot Structure field
+testData.Ts             = thermoData(2:end);    % Initialize surface temperature to surf Temp
+testData.Tc             = testData.Ts;    % Initialize core temperature to surf Temp
+
+testData.Cost = [];
+testData.ExitFlag = [];
+testData.Iters = [];
+testData.balCurr = [];
+testData.optCurr = [];
+testData.optPSUCurr = [];
 
 battData.Cost = 0;
 battData.timeLeft = zeros(1, NUMCELLS);
@@ -379,11 +393,11 @@ battData.optPSUCurr = zeros(1, 1);
 ind = 1;
 xk = zeros(nx, 1);
 
-xk(ind:ind+NUMCELLS-1, :)   =  battData.SOC'         ; ind = ind + NUMCELLS;
+xk(ind:ind+NUMCELLS-1, :)   =  testData.cellSOC(end, :)'; ind = ind + NUMCELLS;
 xk(ind:ind+NUMCELLS-1, :)   =  zeros(1, NUMCELLS)'   ; ind = ind + NUMCELLS; % V1 - Voltage accross RC1
 xk(ind:ind+NUMCELLS-1, :)   =  zeros(1, NUMCELLS)'   ; ind = ind + NUMCELLS; % V2 - Voltage accross RC2
-xk(ind:ind+NUMCELLS-1, :)   =  battData.Tc'          ; ind = ind + NUMCELLS;
-xk(ind:ind+NUMCELLS-1, :)   =  battData.Ts'          ; ind = ind + NUMCELLS;
+xk(ind:ind+NUMCELLS-1, :)   =  testData.Tc'          ; ind = ind + NUMCELLS;
+xk(ind:ind+NUMCELLS-1, :)   =  testData.Ts'          ; ind = ind + NUMCELLS;
 
 %% MPC - Configure Parameters
 try
@@ -479,8 +493,7 @@ try
     references = [repmat(TARGET_SOC, 1, NUMCELLS), repmat(ANPOT_Target, 1, NUMCELLS),... % ]; %
          repmat(3, 1, NUMCELLS)];
     
-    u0 = [battData.balCurr, battData.optPSUCurr];
-    combCurr = battData.curr(:);
+    u0 = [zeros(1, NUMCELLS), 0];
 
     validateFcns(mpcObj, xk, u0, [], {p1, p2, p3, p4}, references);
 catch ME
@@ -537,6 +550,8 @@ ekf.ProcessNoise = diag(pCov(:));
 %% MPC Simulation Loop
 
 u = zeros(NUMCELLS + 1,1);
+combCurr = zeros(NUMCELLS, 1);
+
 options = nlmpcmoveopt;
 options.Parameters = {p1, p2, p3, p4};
 
@@ -556,14 +571,14 @@ try
     testingData.u(end + 1, :) = u(:)';
     testingData.CellCurr(end + 1, :) = testData.cellCurr(end, :);
     if ONLY_CHRG_FLAG == false
-        if (max(battData.SOC(end, :) > MAX_BAL_SOC) ...
-                || min(battData.SOC(end, :) < MIN_BAL_SOC))
+        if (max(testData.cellSOC(end, :) > MAX_BAL_SOC) ...
+                || min(testData.cellSOC(end, :) < MIN_BAL_SOC))
             BalanceCellsFlag = false; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
             predMdl.Curr.balWeight = 0;
             p2 = predMdl;
             options.Parameters = {p1, p2, p3, p4};
-        elseif max(battData.SOC(end, :) < MAX_BAL_SOC) ...
-                && min(battData.SOC(end, :) > MIN_BAL_SOC)
+        elseif max(testData.cellSOC(end, :) < MAX_BAL_SOC) ...
+                && min(testData.cellSOC(end, :) > MIN_BAL_SOC)
             BalanceCellsFlag = true; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
             predMdl.Curr.balWeight = 1;
         end
@@ -577,7 +592,7 @@ try
     sTime = [];readTime = [];
     tElapsed_plant = 0; prevStateTime = 0; prevMPCTime = 0;
     SOC_Targets = [];
-    while min(battData.SOC(end, :) <= TARGET_SOC)       
+    while min(testData.cellSOC(end, :) <= TARGET_SOC)       
         
         if ( toc(testTimer)- prevMPCTime ) >= sampleTime && strcmpi(poolState, "finished")
             tElapsed_MPC = toc(testTimer);
@@ -635,8 +650,8 @@ try
             % or if SOC deviation if less than threshold. 
             % MPC won't optimize for Balance currents past this range
             if ONLY_CHRG_FLAG == false
-                if (max(battData.SOC(end, :) > MAX_BAL_SOC) ...
-                        || min(battData.SOC(end, :) < MIN_BAL_SOC)) ...
+                if (max(testData.cellSOC(end, :) > MAX_BAL_SOC) ...
+                        || min(testData.cellSOC(end, :) < MIN_BAL_SOC)) ...
                         || abs( max(xk(xIND.SOC)) - min(xk(xIND.SOC)) ) < ALLOWABLE_SOCDEV
                     
                     BalanceCellsFlag = false;
@@ -646,19 +661,19 @@ try
                     u = [zeros(NUMCELLS, 1); u(end)];
                     mpcObj.MV(NUMCELLS + 1).Min = min(MIN_CELL_CURR);
                     
-                elseif max(battData.SOC(end, :) < MAX_BAL_SOC) ...
-                        && min(battData.SOC(end, :) > MIN_BAL_SOC) ...
+                elseif max(testData.cellSOC(end, :) < MAX_BAL_SOC) ...
+                        && min(testData.cellSOC(end, :) > MIN_BAL_SOC) ...
                         && (max(abs(predMdl.SOC.devMat * xk(xIND.SOC))) >= ALLOWABLE_SOCDEV)
                     
                     BalanceCellsFlag = true;
                     predMdl.Curr.balWeight = 1;
                     p2 = predMdl;
                     options.Parameters = {p1, p2, p3, p4};
-                    mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(battData.SOC(end, :));
+                    mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(testData.cellSOC(end, :));
                 end
                 
                 if BalanceCellsFlag == true
-                    mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(battData.SOC(end, :));
+                    mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(testData.cellSOC(end, :));
                 end
             end
             
@@ -693,9 +708,9 @@ try
 
                 % Balancer and PSU Current
                 balCurr = optCurr(1:NUMCELLS);
-                battData.balCurr = [battData.balCurr; balCurr'];
+                testData.balCurr(end+1, :) = balCurr';
                 optPSUCurr = optCurr(end);
-                battData.optPSUCurr  = [battData.optPSUCurr ; optPSUCurr];
+                testData.optPSUCurr(end+1, :) = optPSUCurr;
                 
                 
                 % Set power supply current
@@ -722,6 +737,7 @@ try
                 
                 wait(0.05);
                 
+%{                
                 script_queryData;
                 y_Ts = thermoData(2:end);
                 
@@ -787,7 +803,7 @@ try
                 fprintf(currStr + newline);
                 fprintf("xk(SOC) =\t"); disp(xk(xIND.SOC)')
                 fprintf(socStr);
-                
+                %}
                 prevElapsed = tElapsed_plant;
                 
             end
@@ -805,9 +821,38 @@ try
                 interpCurr = testData.cellCurr(end, :)' .* (ANPOTind);
                 ANPOT = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
                    interpCurr , testData.cellSOC(end, :)' );
-               
+
            testData.AnodePot(end+1, :) = ANPOT(:)';
+
+           SOC_Targets(end+1, :) = SOC_Target';
+
+           testData.Cost(end+1, :)      = cost;
+           testData.Iters(end+1, :)     = iters;
+           testData.ExitFlag(end+1, :)  = mpcinfo.ExitFlag;
+           
+            MPCStr = ""; ANPOTStr = ""; balStr = "";
+            MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\t\tIters = %d\n", mpcinfo.ExitFlag, cost, iters);
+                
+            for i = 1:NUMCELLS-1
+                ANPOTStr = ANPOTStr + sprintf("ANPOT %d = %.3f A/m^2\t", i, testData.AnodePot(end,i));
+                balStr = balStr + sprintf("Bal %d = %.4f A\t", i, testData.balCurr(end,i));
+            end
             
+            for i = i+1:NUMCELLS
+                ANPOTStr = ANPOTStr + sprintf("ANPOT %d = %.3f A/m^2\n", i, testData.AnodePot(end,i));
+                balStr = balStr + sprintf("Bal %d = %.4f A\n", i, testData.balCurr(end,i));
+            end
+                       
+            fprintf(ANPOTStr + newline);
+            fprintf(balStr + newline);
+            fprintf(MPCStr + newline);
+            
+            timingStr = sprintf("Prev Opt Time: %.3f Secs", sTime(end, 1));
+            fprintf(timingStr + newline);
+            
+            fprintf("Predicted Voltage =\t"); disp(mdl_Y(yIND.Volt))
+            fprintf("Predicted SOC =\t"); disp(xk(xIND.SOC)')
+
             script_failSafes; %Run FailSafe Checks
             script_checkGUICmd; % Check to see if there are any commands from GUI
             % if limits are reached, break loop

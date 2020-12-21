@@ -231,8 +231,7 @@ if ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDe
     adcAvgCount = 10; %20;
 
 end
-
-              
+        
 
 % Creates an container that will be used to record previous time measurements
 timerPrev = zeros(5, 1); 
@@ -304,7 +303,7 @@ else
     end
 end
 
-% verbosity = 0; % How often to display (stream to screen). 1 = constantly, 0 = once a while
+verbosity = 0; % How often to display (stream to screen). 1 = constantly, 0 = once a while
 if ~exist("verbosity", 'var')
     verbosity = 1;
 end
