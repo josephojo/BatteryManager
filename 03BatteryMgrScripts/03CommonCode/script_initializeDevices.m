@@ -78,9 +78,7 @@ if strcmpi(caller, "gui")
     % LABJACK
     %##########################################################################
     if exist('sysMCUArgs', 'var') && ~isempty(sysMCUArgs)
-        if strcmpi(sysMCUArgs.devName, "LJMCU")
-            LJRelayPins = sysMCUArgs.relayPins;
-            
+        if strcmpi(sysMCUArgs.devName, "LJMCU")           
             if ~exist('ljasm','var')
                 ljasm = NET.addAssembly('LJUDDotNet');
                 ljudObj = LabJack.LabJackUD.LJUD;
@@ -215,7 +213,6 @@ elseif strcmpi(caller, "cmdWindow")
     
     % LABJACK
     %##########################################################################
-    LJRelayPins = [5, 6];
     if ~exist('ljasm','var')
         ljasm = NET.addAssembly('LJUDDotNet');
         ljudObj = LabJack.LabJackUD.LJUD;
@@ -232,7 +229,11 @@ elseif strcmpi(caller, "cmdWindow")
         % Start by using the pin_configuration_reset IOType so that all pin
         % assignments are in the factory default condition.
 %         ljudObj.ePutS(ljhandle, 'LJ_ioPIN_CONFIGURATION_RESET', 0, 0, 0);
-        ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', 7, 1, 0);
+
+% This pin (7) is a DIO that was used as an AIN to measure ref voltage for
+% current measurement. The pin is now being used to allow/disallow cell voltage measurement
+% on the Labjack
+%         ljudObj.ePutS(ljhandle, 'LJ_ioPUT_ANALOG_ENABLE_BIT', 7, 1, 0);
         
     end
     

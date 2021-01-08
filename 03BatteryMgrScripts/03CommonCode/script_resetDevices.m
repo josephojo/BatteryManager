@@ -30,7 +30,7 @@ try
 %     if exist('ljasm','var')
 %         relayState = false;
 %         if (isempty(ljasm) == 0)
-%             script_switchRelays;
+%             script_switchPowerDevRelays;
 %             ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', 4, 0, 0, 0);
 %             ljudObj.GoOne(ljhandle);
 %             ljudObj.Close();
@@ -96,10 +96,11 @@ end
 if exist('ljasm','var')
     relayState = false;
     if (isempty(ljasm) == 0)
-        script_switchRelays;
-%         ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', 4, 0, 0, 0); % Turn off Trigger Pin
-%         ljudObj.GoOne(ljhandle); #Comeback - Need to make sure pins are
-                                    %         switched of regardless of pin polarity/inversion
+        if strcmpi(testSettings.voltMeasDev, "mcu")
+            LJ_MeasVolt = false;
+            [ljudObj,ljhandle] = MCU_digitalWrite(ljudObj, ljhandle, LJ_MeasVoltPin, LJ_MeasVolt, LJ_MeasVolt_Inverted);
+        end
+        script_switchPowerDevRelays;
         ljudObj.Close();
         clear('ljudObj', 'ljasm');
     end

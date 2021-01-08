@@ -8,7 +8,7 @@ if ~strcmpi(battState, "idle")
     psu.disconnect();
     
     relayState = false; % true; % Relay is in the Normally Closed Position
-    script_switchRelays;
+    script_switchPowerDevRelays;
 
 end
 battState = "idle";

@@ -48,7 +48,14 @@ if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "tempMeasDev")
     testSettings.tempMeasDev = "Mod16Ch";
 end
 
-
+%% Configure Relay pins on the LAbJack MCU
+if caller == "gui"
+    LJ_powerDev_RelayPins = sysMCUArgs.relayPins;
+    LJ_MeasVoltPin = 7; %#TODO Need to create a field for this in sysMCUArgs
+else
+    LJ_powerDev_RelayPins = [5, 6]; % Power Device Switching pins
+    LJ_MeasVoltPin = 7;
+end
 
 %% Battery Connection Info
 
@@ -211,7 +218,7 @@ if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDe
         currPinPos = sysMCUArgs.currMeasPins(1);
         currPinNeg = sysMCUArgs.currMeasPins(2);
     else
-        % Pins on the LABJACK U#-HV that measures shunt Voltage
+        % Pins on the LABJACK U3-HV that measures shunt Voltage
         currPinPos = 0; 
         currPinNeg = 7;
     end
@@ -224,9 +231,10 @@ if ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDe
         voltPinPos = sysMCUArgs.voltMeasPins(1);
         voltPinNeg = sysMCUArgs.voltMeasPins(2);
     else
-        voltPinPos = 2;
-        voltPinNeg = 3;
-    end
+        voltPinPos = 2;  % Analog input pin for measuring +ve terminal voltage wrt MCU Gnd
+        voltPinNeg = 3;  % Analog input pin for measuring -ve terminal voltage wrt MCU Gnd
+    end 
+    
     voltNeg = 0; voltPos = 0; adcAvgCounter = 0; 
     adcAvgCount = 10; %20;
 

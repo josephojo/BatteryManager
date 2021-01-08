@@ -9,8 +9,6 @@ if ~strcmpi(battState, "charging")
     psu.disconnect();
     eload.Disconnect();
     
-%     relayState = true; % Place Relay is in the Normally Opened Position
-%     script_switchRelays;
 
     psu.setVolt(round(chargeVolt,3));
     psu.setCurr(round(curr,3));
@@ -18,7 +16,7 @@ if ~strcmpi(battState, "charging")
         
 %     wait(0.10)
     relayState = true; % Place Relay is in the Normally Opened Position
-    script_switchRelays;
+    script_switchPowerDevRelays;
     
 else
     psu.setCurr(round(curr,4));

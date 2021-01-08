@@ -18,9 +18,8 @@
                     send(errorQ, err);
                 end
                 pinVal = ~(true & triggers.inverts(trig_Ind)); % Flips the pinVal if invert is true
-                % Make sure the heating pad is ON
-                ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', triggers.pins(trig_Ind), pinVal, 0, 0);
-                ljudObj.GoOne(ljhandle);
+                % Trigger Device ON
+                [ljudObj,ljhandle] = MCU_digitalWrite(ljudObj, ljhandle, triggers.pins(trig_Ind), pinVal);
                 trig_On(trig_Ind) = true;
                 %                             trig_Ind = trig_Ind + 1;
             end
@@ -40,9 +39,8 @@
                     send(errorQ, err);
                 end
                 pinVal = ~(false & triggers.inverts(trig_Ind)); % Flips the pinVal if invert is true
-                % Make sure the heating pad is OFF
-                ljudObj.AddRequestS(ljhandle,'LJ_ioPUT_DIGITAL_BIT', triggers.pins(trig_Ind), pinVal, 0, 0);
-                ljudObj.GoOne(ljhandle);
+                % Trigger Device OFF
+                [ljudObj,ljhandle] = MCU_digitalWrite(ljudObj, ljhandle, triggers.pins(trig_Ind), pinVal);
                 trig_On(trig_Ind) = false;
                 %                             if length(trigStartTimes) > 1 && trig_Ind ~= length(trigStartTimes)
                 %                                 trig_Ind = trig_Ind + 1;

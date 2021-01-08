@@ -12,7 +12,7 @@ if ~strcmpi(battState, "discharging")
     eload.Connect();
 
     relayState = false; %true; % Place Relay is in the Normally Closed Position
-    script_switchRelays;
+    script_switchPowerDevRelays;
 
 else
     eload.SetLev_CC(abs(round(curr,3)));
