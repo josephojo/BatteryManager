@@ -59,7 +59,7 @@ curr = x(xIND.Curr);
 % OCV = reshape(Z.OCV, size(SOC));
 % rs = reshape(Z.Rs, size(SOC));
 
-% OCV = interp1qr(predMdl.Volt.SOC, predMdl.Volt.OCV, SOC(:));
+% OCV = interp1qr(predMdl.Volt.SOC', predMdl.Volt.OCV, SOC(:));
 OCV = lookup1D(predMdl.Volt.SOC, predMdl.Volt.OCV, SOC(:));
 Vt = OCV(:) - V1 - V2 -(curr .* predMdl.Volt.Rs); 
 
