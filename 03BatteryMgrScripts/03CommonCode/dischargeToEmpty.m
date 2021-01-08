@@ -82,7 +82,7 @@ while testData.packVolt(end, :) > lowVoltLimit
 end
 
 
-batteryParam.soc(cellIDs) = 0; % 0% DisCharged
+% batteryParam.soc(cellIDs) = 0; % 0% DisCharged
 
 % Save Battery Parameters
 save(dataLocation + "007BatteryParam.mat", 'batteryParam');

@@ -11,7 +11,7 @@ function [battTS, cells] = waitTillTime(targTime, varargin)
 %			trig1_startTime	= [10.0], 		: How long into the parent function to trigger. Can be an array of times (s)
 %			trig1_duration	= [2.0],  		: How long should the trigger last
 %											
-%			cellIDs       	= [],     		: IDs of Cells being tested. If parallel specify all cells in string array
+%			battID       	= [],     		: IDs of Cells being tested. If parallel specify all cells in string array
 %			caller      	= "cmdWindow", 	: Specifies who the parent caller is. The GUI or MatLab's cmd window. Implementations between both can be different
 %			psuArgs       	= [],     		: Connection details of the power supply
 %			eloadArgs     	= [],     		: Connection details of the Electronic Load
@@ -41,7 +41,7 @@ try
     'trig1_startTime',  [10.0], ... %           "
     'trig1_duration',   [2.0],  ... %           "
                     ...             %           "
-    'cellIDs',          [],     ... %           "
+    'battID',          [],     ... %           "
     'caller',      "cmdWindow", ... %           "
     'psuArgs',          [],     ... %           "
     'eloadArgs',        [],     ... %           "
@@ -81,7 +81,7 @@ try
 
     % ---------------------------------
 
-    cellIDs = param.cellIDs;
+    battID = param.battID;
     caller = param.caller;
     psuArgs = param.psuArgs;
     eloadArgs = param.eloadArgs;

@@ -172,7 +172,7 @@ try
             script_triggerDigitalPins;
 
         end
-        batteryParam.soc(battID) = 0; % 0% DisCharged
+%         batteryParam.soc(battID) = 0; % 0% DisCharged
 
     else
         % While SOC is greater than specified

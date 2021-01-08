@@ -18,6 +18,17 @@ end
 % Capture Time
 tElapsed = toc(testTimer) - timerPrev(1);
 
+if isempty(testData.time) && strcmpi(testSettings.voltMeasDev, "mcu") 
+   % Activate relay to allow the LJ MCU to measure Voltage. 
+    % This is needed so that the MCU can measure a more accurate voltage. 
+    % Keep in mind though that the MCU cannot measure series voltage
+    % past 5V
+    LJ_MeasVolt = true; 
+    LJ_MeasVolt_Inverted = true; % The relay being used is inverted. I.e 0 means true and 1 means false
+    [ljudObj,ljhandle] = MCU_digitalWrite(ljudObj, ljhandle, LJ_MeasVoltPin, LJ_MeasVolt, LJ_MeasVolt_Inverted);
+ 
+end
+
 % Temperature Measurement for the stack. Each temp measurement is indicated
 % by the channel numbers they are connected to
 if ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.tempMeasDev, "Mod16Ch")
@@ -154,7 +165,9 @@ elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMe
     
     % Get cell measurements if available
     if strcmpi(cellConfig, 'parallel') || strcmpi(cellConfig, 'SerPar')
-        % Implementation coming soon.
+        % This Implementation is wrong since urrent won't be the same due
+        % to the battery's internal impedance
+        testData.cellCurr(end+1, :) = testData.packCurr(end, :)/numCells_Par; % Assign stack current to individual current
     else
         testData.cellCurr(end+1, :) = testData.packCurr(end, :); % Assign stack current to individual current
     end
@@ -205,17 +218,17 @@ if ismember("SOC", testSettings.data2Record)
         cellSOC = testData.cellSOC(end, :);
         packSOC = testData.packSOC(end, :);
     end
-    if strcmpi(cellConfig, "series") || strcmpi(cellConfig, 'SerPar')       
-        testData.cellSOC(end+1, :) = estimateSOC(testData.cellCurr(end, :),...
+    if (testData.packCurr(end, :) < 0), colEff = battProp.cellEta{battID}; else, colEff = 1; end
+    
+    if strcmpi(cellConfig, "series") || strcmpi(cellConfig, 'SerPar')
+        testData.cellSOC(end+1, :) = estimateSOC(testData.cellCurr(end, :).*colEff(:)',...
             deltaT, cellSOC, (battProp.cellCap{battID}' * 3600)); % Capacity x 3600 = coulombs
         testData.packSOC(end+1, :) = mean(testData.cellSOC(end, :));
        
     else
-        testData.cellSOC(end+1, :) = estimateSOC(testData.cellCurr(end, :),...
-            deltaT, cellSOC, battProp.capacity(battID)*3600); % Capacity for cells is the same as for pack in a single/parallel config
-        testData.packSOC(end+1, :) = estimateSOC(testData.packCurr(end, :),...
+        testData.packSOC(end+1, :) = estimateSOC(testData.packCurr(end, :).*colEff(:)',...
             deltaT, packSOC, battProp.capacity(battID)*3600); % Capacity x 3600 = coulombs
-        
+        testData.cellSOC(end+1, :) = testData.packSOC(end, :);
     end
     
 %     % Update Previous SOCs
@@ -265,10 +278,10 @@ else
             
             Bstr = "";
             for seriesInd = 1:numCells_Ser           
-                Bstr = Bstr + sprintf("Volt(" + seriesInd + ", :) = %.2f V\t", testData.cellVolt(end, seriesInd));
-                Bstr = Bstr + sprintf("Curr(" + seriesInd + ", :) = %.2f A\t", testData.cellCurr(end, seriesInd));
-                Bstr = Bstr + sprintf("SOC(" + seriesInd + ", :) = %.2f\t",    testData.cellSOC(end, seriesInd)*100);
-                Bstr = Bstr + sprintf("Ah(" + seriesInd + ", :) = %.3f Ah\t",  testData.cellCap(end, seriesInd));
+                Bstr = Bstr + sprintf("Volt(" + seriesInd + ", :) = %.2fV\t\t", testData.cellVolt(end, seriesInd));
+                Bstr = Bstr + sprintf("Curr(" + seriesInd + ", :) = %.2fA\t\t", testData.cellCurr(end, seriesInd));
+                Bstr = Bstr + sprintf("SOC(" + seriesInd + ", :) = %.2f\t\t",    testData.cellSOC(end, seriesInd)*100);
+                Bstr = Bstr + sprintf("Ah(" + seriesInd + ", :) = %.3fAh\t\t",  testData.cellCap(end, seriesInd));
                 Bstr = Bstr + newline;
             end
             
@@ -291,10 +304,10 @@ else
 
         Bstr = "";
         for seriesInd = 1:numCells_Ser           
-            Bstr = Bstr + sprintf("Volt(" + seriesInd + ", :) = %.2f V\t", testData.cellVolt(end, seriesInd));
-            Bstr = Bstr + sprintf("Curr(" + seriesInd + ", :) = %.2f A\t", testData.cellCurr(end, seriesInd));
-            Bstr = Bstr + sprintf("SOC(" + seriesInd + ", :) = %.2f\t",    testData.cellSOC(end, seriesInd)*100);
-            Bstr = Bstr + sprintf("Ah(" + seriesInd + ", :) = %.3f Ah\t",  testData.cellCap(end, seriesInd));
+            Bstr = Bstr + sprintf("Volt(" + seriesInd + ", :) = %.2fV\t\t", testData.cellVolt(end, seriesInd));
+            Bstr = Bstr + sprintf("Curr(" + seriesInd + ", :) = %.2fA\t\t", testData.cellCurr(end, seriesInd));
+            Bstr = Bstr + sprintf("SOC(" + seriesInd + ", :) = %.2f\t\t",    testData.cellSOC(end, seriesInd)*100);
+            Bstr = Bstr + sprintf("Ah(" + seriesInd + ", :) = %.3f Ah\t\t",  testData.cellCap(end, seriesInd));
             Bstr = Bstr + newline;
         end
 
