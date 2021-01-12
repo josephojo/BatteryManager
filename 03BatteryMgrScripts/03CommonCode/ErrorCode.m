@@ -34,6 +34,10 @@ classdef ErrorCode
         USB_DROPPED
         USB_PARSER
         OVUV % Over-voltage and Under-Voltage
+        OV % Over Voltage
+        UV % Under Voltage
+        OC % Over Current Error
+        UC % Under Current
         USB_PARSER_NOTDONE % The full response has not been received, exit and wait for it without deleting anything from the buffer
         USB_PARSER_UNSUCCESSFUL         % The USB Parser was not able to finish either due to exception or an unmet condition
         USB_PARSER_UNKNOWN_COMMAND      % Unknown command received from the serial interface

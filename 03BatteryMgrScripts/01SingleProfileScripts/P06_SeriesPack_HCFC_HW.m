@@ -154,7 +154,7 @@ indices.x = xIND;
 indices.y = yIND;
 
 
-TARGET_SOC = 0.85; %0.98;
+TARGET_SOC = 0.62; %0.98;
 ANPOT_Target = -0.1;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
 
 % Balance Efficiencies
@@ -387,23 +387,6 @@ testData.AnodePot = ANPOT; % Initialize AnodePot Structure field
 testData.Ts             = thermoData(2:end);    % Initialize surface temperature to surf Temp
 testData.Tc             = testData.Ts;    % Initialize core temperature to surf Temp
 
-testData.Cost = [];
-testData.ExitFlag = [];
-testData.Iters = [];
-testData.balCurr = [];
-testData.optPSUCurr = [];
-testData.predStates = [];
-testData.predOutput = [];
-
-battData.Cost = 0;
-battData.timeLeft = zeros(1, NUMCELLS);
-battData.ExitFlag = 0;
-battData.Iters = 0;
-battData.balCurr = zeros(1, NUMCELLS);
-battData.optCurr = zeros(1, NUMCELLS);
-battData.optPSUCurr = zeros(1, 1);
-testData.sTime = [];
-
 
 ind = 1;
 xk = zeros(nx, 1);
@@ -413,6 +396,16 @@ xk(ind:ind+NUMCELLS-1, :)   =  zeros(1, NUMCELLS)'   ; ind = ind + NUMCELLS; % V
 xk(ind:ind+NUMCELLS-1, :)   =  zeros(1, NUMCELLS)'   ; ind = ind + NUMCELLS; % V2 - Voltage accross RC2
 xk(ind:ind+NUMCELLS-1, :)   =  testData.Tc'          ; ind = ind + NUMCELLS;
 xk(ind:ind+NUMCELLS-1, :)   =  testData.Ts'          ; ind = ind + NUMCELLS;
+
+testData.Cost = 0;
+testData.ExitFlag = 0;
+testData.Iters = 0;
+testData.balCurr = zeros(1, NUMCELLS);
+testData.optPSUCurr = zeros(1, NUMCELLS);
+testData.predStates = xk(:)';
+testData.predOutput = [testData.cellSOC(end, :), testData.Ts, testData.AnodePot];
+testData.sTime = 0;
+
 
 %% MPC - Configure Parameters
 try
@@ -435,8 +428,8 @@ try
     % Add Manipulated variable constraints
     % Small Rates affect speed a lot
     for i = 1:NUMCELLS
-        mpcObj.MV(i).Max =  MAX_BAL_CURR;      mpcObj.MV(i).RateMax =  0.5; % MAX_CELL_CURR;
-        mpcObj.MV(i).Min =  0;     mpcObj.MV(i).RateMin = -0.5; % -2; % -6
+        mpcObj.MV(i).Max =  MAX_BAL_CURR;    mpcObj.MV(i).RateMax =  0.5; % MAX_CELL_CURR;
+        mpcObj.MV(i).Min =  0;               mpcObj.MV(i).RateMin = -0.5; % -2; % -6
     end % MIN_BAL_CURR
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;
@@ -601,6 +594,7 @@ try
     sTime = [];readTime = [];
     tElapsed_plant = 0; prevStateTime = 0; prevMPCTime = 0;
     SOC_Targets = [];
+    
     while min(testData.cellSOC(end, :) <= TARGET_SOC)       
         if ( toc(testTimer)- prevMPCTime ) >= sampleTime && strcmpi(poolState, "finished")
             tElapsed_MPC = toc(testTimer);
@@ -792,7 +786,7 @@ try
             script_failSafes; %Run FailSafe Checks
             script_checkGUICmd; % Check to see if there are any commands from GUI
             % if limits are reached, break loop
-            if errorCode == 1 || strcmpi(testStatus, "stop")
+            if strcmpi(testStatus, "stop")
                 script_idle;
             end
         end
@@ -819,10 +813,22 @@ try
     % Save Battery Parameters
     save(dataLocation + "007BatteryParam.mat", 'batteryParam');
     
-    % Save Test Data
-    testSettings.saveDir = testSettings.saveDir + metadata.startDate...
-        +"_"+ metadata.startTime + "_Test_W\";
-    
+    if ~strcmpi(testStatus, "stop")
+        % Save Test Data
+        testSettings.saveDir = testSettings.saveDir + metadata.startDate...
+            +"_"+ metadata.startTime + "_Test_Successful\";
+    elseif strcmpi(testStatus, "stop")
+        % Save Test Data
+        testSettings.saveDir = testSettings.saveDir + metadata.startDate...
+            +"_"+ metadata.startTime + "_Test_ErroredOut\";
+        testData.errCode = errorCode;
+    else 
+        % Save Test Data
+        testSettings.saveDir = testSettings.saveDir + metadata.startDate...
+            +"_"+ metadata.startTime + "_Test_Failed\";
+        testData.errCode = errorCode;
+    end
+    % Save Data
     [saveStatus, saveMsg] = saveBattData(testData, metadata, testSettings);
     if saveStatus == false
         warning(saveMsg);

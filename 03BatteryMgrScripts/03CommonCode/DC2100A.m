@@ -247,6 +247,7 @@ classdef DC2100A < handle
     % PUBLIC PROPERTIES
     % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
     properties
+        prevKey = javaObject('java.util.LinkedList'); % Linked List to store the previous cmds from serial port
         eventLog      % Property that the error log handle is stored.
         
         serial      % Property that the serial port handle is created. 
@@ -737,17 +738,19 @@ classdef DC2100A < handle
 %             obj.count = obj.count+1;
 %             disp("Count " + obj.count + ": " + num2str(toc(xx)) + "ms");    
 
+%{
             % Print Voltages every 1s
-%             if obj.Val == 50
-%                 ind = 1:DC2100A.MAX_CELLS; s="";
-%                 for i = ind(logical(obj.cellPresent(1, :)))
-%                     s = s+sprintf("Volt[%d] = %.4f\t", i, obj.Voltages(1, i));
-%                 end
-%                 fprintf(s + newline);
-%                 obj.Val = 0;
-%             else
-%                 obj.Val = obj.Val + 1;
-%             end
+            if obj.Val == 50
+                ind = 1:DC2100A.MAX_CELLS; s="";
+                for i = ind(logical(obj.cellPresent(1, :)))
+                    s = s+sprintf("Volt[%d] = %.4f\t", i, obj.Voltages(1, i));
+                end
+                fprintf(s + newline);
+                obj.Val = 0;
+            else
+                obj.Val = obj.Val + 1;
+            end
+            %}
 
         end
         
@@ -804,7 +807,7 @@ classdef DC2100A < handle
             % Add new Data to linked list
             DC2100A.ADD_RANGE(obj.buf_in, new_data, 1, length(new_data))
                 
-            ind = 1;
+            ind = 1; 
             while ind <= length(new_data)
                 key = obj.buf_in.peek();
                 
@@ -828,17 +831,29 @@ classdef DC2100A < handle
                         % Or else, pretend to store the remaining data by 
                         % incrementing the "ind" variable so we can keep 
                         % track of the input data
-                        ind = ind + (length(new_data) - ind);
+                        ind = ind + length(new_data);
+                        obj.eventLog.Add(ErrorCode.USB_PARSER_NOTDONE,...
+                                "Data received is less than amount expected: " ...
+                                + strjoin(DC2100A.REMOVE_LEN(obj.buf_in, obj.buf_in.size)));
+                    end
+                    
+                    obj.prevKey.add(key);
+                    if obj.prevKey.size > 10
+                        obj.prevKey.remove();
                     end
                 else
                     % Save the characters that were dropped, and write them into the Error log at the next good transaction.
                     obj.USB_Parser_Buffer_Dropped = obj.USB_Parser_Buffer_Dropped + obj.buf_in.remove;
-                    if strlength(obj.USB_Parser_Buffer_Dropped) > DC2100A.USB_MAX_PACKET_SIZE
-                        obj.eventLog.Add(ErrorCode.USB_DROPPED, obj.USB_Parser_Buffer_Dropped);
+%                     if strlength(obj.USB_Parser_Buffer_Dropped) > DC2100A.USB_MAX_PACKET_SIZE
+                    if obj.USB_Parser_Buffer_Dropped ~= "" && obj.buf_in.size == 0
+                        prevCmds = obj.prevKey.peekLast();
+                        obj.eventLog.Add(ErrorCode.USB_DROPPED, ...
+                            "Prev Cmd: " + prevCmds + "; Data: " + obj.USB_Parser_Buffer_Dropped);
                         obj.USB_Parser_Buffer_Dropped = "";
                     end
                     ind = ind + 1;
                 end
+                
             end
         end
         
@@ -1007,17 +1022,20 @@ classdef DC2100A < handle
                         [system_uv_last, ~] = Get_SystemUV(obj);
                         
                         % get the board number
-                        obj.buf_in.remove; % Remove the command or first character
+                        cmd = obj.buf_in.remove; % Remove the command or first character
                         index = 1;
                         num_bytes = 2;
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
+                            msg = DC2100A.REMOVE_LEN(obj.buf_in, len - index);
                             % If this is a board we don't know, then this is a failed response
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
-                                "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
+                                "Board: " + num2str(board_num), ...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
+                            warning(string(ErrorCode.USB_PARSER_UNKNOWN_BOARD) + ": " +...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg))
                         else
                             % get the ov flags
                             num_bytes = 3;
@@ -1313,16 +1331,19 @@ classdef DC2100A < handle
                             'FW_Rev', DC2100A.APP_FW_STRING_DEFAULT);
                         
                         % get the board number
-                        obj.buf_in.remove; % Remove the command or first character
+                        cmd = obj.buf_in.remove; % Remove the command or first character
                         index = 1;
                         num_bytes = 2;
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
+                            msg = DC2100A.REMOVE_LEN(obj.buf_in, len - index);
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
-                                "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
+                                "Board: " + num2str(board_num), ...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
+                            warning(string(ErrorCode.USB_PARSER_UNKNOWN_BOARD) + ": " +...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg))
                         else
                             %  get the model number
                             num_bytes = strlength(DC2100A.DC2100A_MODEL_NUM_DEFAULT);
@@ -1638,17 +1659,20 @@ classdef DC2100A < handle
                     try
                         status = ErrorCode.NO_ERROR;
                         % get the board number
-                        obj.buf_in.remove; % Remove the command or first character
+                        cmd = obj.buf_in.remove; % Remove the command or first character
                         index = 1;
                         num_bytes = 2;
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
+                            msg = DC2100A.REMOVE_LEN(obj.buf_in, len - index);
                             % If this is a board we don't know, then this is a failed response
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
-                                "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
+                                "Board: " + num2str(board_num), ...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
+                            warning(string(ErrorCode.USB_PARSER_UNKNOWN_BOARD) + ": " +...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg))
                         else
                             % get the passive balancer values
                             num_bytes = 4;
@@ -1667,17 +1691,20 @@ classdef DC2100A < handle
                     try
                         status = ErrorCode.NO_ERROR;
                         % get the board number
-                        obj.buf_in.remove; % Remove the command or first character
+                        cmd = obj.buf_in.remove; % Remove the command or first character
                         index = 1;
                         num_bytes = 2;
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
+                            msg = DC2100A.REMOVE_LEN(obj.buf_in, len - index);
                             % If this is a board we don't know, then this is a failed response
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
-                                "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
+                                "Board: " + num2str(board_num), ...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
+                            warning(string(ErrorCode.USB_PARSER_UNKNOWN_BOARD) + ": " +...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg))
                         else
                             % get the cell present values
                             num_bytes = 4;
@@ -1725,17 +1752,20 @@ classdef DC2100A < handle
                         adc_values = zeros(1, DC2100A.NUM_TEMPS);
                         
                         % get the board number
-                        obj.buf_in.remove; % Remove the command or first character
+                        cmd = obj.buf_in.remove; % Remove the command or first character
                         index = 1;
                         num_bytes = 2;
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
+                            msg = DC2100A.REMOVE_LEN(obj.buf_in, len - index);
                             % If this is a board we don't know, then this is a failed response
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
-                                "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
+                                "Board: " + num2str(board_num), ...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
+                            warning(string(ErrorCode.USB_PARSER_UNKNOWN_BOARD) + ": " +...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg))
                         else
                             % get the board temperature adc values
                             num_bytes = 4;
@@ -1756,16 +1786,20 @@ classdef DC2100A < handle
                         register = zeros(1, DC2100A.NUM_LTC3300);
                         
                         % get the board number
-                        obj.buf_in.remove; % Remove the command or first character
+                        cmd = obj.buf_in.remove; % Remove the command or first character
                         index = 1;
                         num_bytes = 2;
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
+                            msg = DC2100A.REMOVE_LEN(obj.buf_in, len - index);
+                            % If this is a board we don't know, then this is a failed response
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
-                                "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
+                                "Board: " + num2str(board_num), ...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
+                            warning(string(ErrorCode.USB_PARSER_UNKNOWN_BOARD) + ": " +...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg))
                         else
                             % get the number of bytes read
                             num_bytes = 1;
@@ -1829,17 +1863,20 @@ classdef DC2100A < handle
                         balance_timer = zeros(1, DC2100A.MAX_CELLS);
                         
                         % get the board number
-                        obj.buf_in.remove; % Remove the command or first character
+                        cmd = obj.buf_in.remove; % Remove the command or first character
                         index = 1;
                         num_bytes = 2;
                         board_num = hex2dec(DC2100A.REMOVE_LEN(obj.buf_in, num_bytes));
                         index = index + num_bytes;
                         if board_num >= DC2100A.MAX_BOARDS
+                            msg = DC2100A.REMOVE_LEN(obj.buf_in, len - index);
                             % If this is a board we don't know, then this is a failed response
                             obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_BOARD,...
-                                "Board: " + num2str(board_num),...
-                                DC2100A.REMOVE_LEN(obj.buf_in, len - index));
+                                "Board: " + num2str(board_num), ...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg));
                             status =  ErrorCode.USB_PARSER_UNKNOWN_BOARD;
+                            warning(string(ErrorCode.USB_PARSER_UNKNOWN_BOARD) + ": " +...
+                                cmd+" "+dec2hex(board_num, 2)+" "+string(msg))
                         else
                             % get the board balance states
                             num_bytes = 4;
@@ -2421,7 +2458,8 @@ classdef DC2100A < handle
 %                 obj.serial = serialport(obj.port, obj.baudRate);
 %                 obj.serial.ByteOrder = obj.byteOrder;
 
-                
+                % Initialize the prevKey linkedList
+                obj.prevKey.add("");
                
             catch MEX
                 disconnectSerial(obj);
