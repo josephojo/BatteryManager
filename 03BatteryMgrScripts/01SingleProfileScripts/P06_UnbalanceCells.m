@@ -1,11 +1,6 @@
 %% Series-Pack Fast Charging
 % By Joseph Ojo
 %
-% The ECM battery model used in this file was adopted from the work by:
-%
-% Xinfan Lin, Hector Perez, Jason Siegel, Anna Stefanopoulou
-%
-%
 %% Change Current Directory
 
 % clearvars;
@@ -66,7 +61,7 @@ try
     end
     
     script_initializeDevices; % Run Script to initialize control devices
-    verbosity = 1; % Data measurements are fully displayed.
+%     verbosity = 1; % Data measurements are fully displayed.
 %     verbosity = 2; % Data measurements are not displayed since the results from the MPC will be.
     balBoard_num = 0; % ID for the main balancer board
     
@@ -363,7 +358,9 @@ end
 %% Initialize Plant variables and States 
 % #############  Initial States  ##############
 try
+    verbosity = 1;
     script_queryData; % Get initial states from device measurements.
+    verbosity = 0;
 catch ME
     script_handleException;
 end
@@ -421,6 +418,7 @@ testData.optPSUCurr = zeros(1, NUMCELLS);
 testData.predStates = xk(:)';
 testData.predOutput = [testData.cellSOC(end, :), testData.Ts, testData.AnodePot];
 testData.sTime = 0;
+testData.SOC_Targets = testData.cellSOC(end, :);
 
 
 %% MPC - Configure Parameters
@@ -586,6 +584,9 @@ poolState = 'finished';
 % ONLY_CHRG_FLAG = true;
 ONLY_CHRG_FLAG = false;
 
+printNow = false; % Variable to decide when to print test data
+
+
 try     
 
     y_Ts = thermoData(2:end);
@@ -611,7 +612,6 @@ try
     end
     sTime = [];readTime = [];
     tElapsed_plant = 0; prevStateTime = 0; prevMPCTime = 0;
-    SOC_Targets = [];
     
     while max(abs(TARGET_SOC - testData.cellSOC(end, :)) > 0.0005) == 1  % min(testData.cellSOC(end, :) <= TARGET_SOC)       
         if ( toc(testTimer)- prevMPCTime ) >= sampleTime && strcmpi(poolState, "finished")
@@ -761,6 +761,18 @@ try
         if (( toc(testTimer)- prevStateTime ) >= readPeriod ) && ~isempty(mpcinfo)
             prevStateTime = toc(testTimer); 
 
+            if verbosity == 1
+                printNow = true;
+            elseif verbosity == 0
+                if dotCounter < 59 % dotCounter is from [script_queryData]
+                    printNow = false;
+                else
+                    printNow = true;
+                end
+            else
+                printNow = false;
+            end
+            
             % Collect Measurements
             script_queryData;
             
@@ -769,43 +781,43 @@ try
                 ANPOT = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
                    interpCurr , testData.cellSOC(end, :)' );
 
-           testData.AnodePot(end+1, :) = ANPOT(:)';
-
-           SOC_Targets(end+1, :) = SOC_Target';
+           testData.AnodePot(end+1, :)      = ANPOT(:)';
+           testData.SOC_Targets(end+1, :)   = SOC_Target';
+           testData.predOutput(end+1, :)    = mdl_Y;
+           testData.predStates(end+1, :)    = xk(:)';
+           testData.balCurr(end+1, :)       = balCurr';
+           testData.optPSUCurr(end+1, :)    = optPSUCurr;
+           testData.Cost(end+1, :)          = cost;
+           testData.Iters(end+1, :)         = iters;
+           testData.ExitFlag(end+1, :)      = mpcinfo.ExitFlag;
+           sTime = [sTime; actual_STime];
+           testData.sTime(end+1, :) = actual_STime;
            
-           testData.predOutput(end+1, :) = mdl_Y;
-           testData.predStates(end+1, :) = xk(:)';
-           testData.balCurr(end+1, :) = balCurr';
-           testData.optPSUCurr(end+1, :) = optPSUCurr;
-           testData.Cost(end+1, :)      = cost;
-           testData.Iters(end+1, :)     = iters;
-           testData.ExitFlag(end+1, :)  = mpcinfo.ExitFlag;
+           if printNow == true
+               MPCStr = ""; ANPOTStr = ""; balStr = "";
+               MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\t\tIters = %d\n", mpcinfo.ExitFlag, cost, iters);
+               
+               for i = 1:NUMCELLS-1
+                   ANPOTStr = ANPOTStr + sprintf("ANPOT %d = %.3f A/m^2\t", i, testData.AnodePot(end,i));
+                   balStr = balStr + sprintf("Bal %d = %.4f A\t", i, testData.balCurr(end,i));
+               end
+               
+               for i = i+1:NUMCELLS
+                   ANPOTStr = ANPOTStr + sprintf("ANPOT %d = %.3f A/m^2\n", i, testData.AnodePot(end,i));
+                   balStr = balStr + sprintf("Bal %d = %.4f A\n", i, testData.balCurr(end,i));
+               end
+               
+               fprintf(ANPOTStr + newline);
+               fprintf(balStr + newline);
+               fprintf(MPCStr + newline);
+               
+               timingStr = sprintf("Prev Opt Time: %.3f Secs", testData.sTime(end, 1));
+               fprintf(timingStr + newline);
+               
+               fprintf("Predicted Voltage =\t"); disp(testData.predOutput(end, yIND.Volt))
+               fprintf("Predicted SOC =\t"); disp(testData.predStates(end, xIND.SOC))
+           end
            
-            MPCStr = ""; ANPOTStr = ""; balStr = "";
-            MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\t\tIters = %d\n", mpcinfo.ExitFlag, cost, iters);
-                
-            for i = 1:NUMCELLS-1
-                ANPOTStr = ANPOTStr + sprintf("ANPOT %d = %.3f A/m^2\t", i, testData.AnodePot(end,i));
-                balStr = balStr + sprintf("Bal %d = %.4f A\t", i, testData.balCurr(end,i));
-            end
-            
-            for i = i+1:NUMCELLS
-                ANPOTStr = ANPOTStr + sprintf("ANPOT %d = %.3f A/m^2\n", i, testData.AnodePot(end,i));
-                balStr = balStr + sprintf("Bal %d = %.4f A\n", i, testData.balCurr(end,i));
-            end
-                       
-            fprintf(ANPOTStr + newline);
-            fprintf(balStr + newline);
-            fprintf(MPCStr + newline);
-            
-            sTime = [sTime; actual_STime]; 
-            testData.sTime(end+1, :) = actual_STime;
-            timingStr = sprintf("Prev Opt Time: %.3f Secs", sTime(end, 1));
-            fprintf(timingStr + newline);
-            
-            fprintf("Predicted Voltage =\t"); disp(testData.predOutput(end, yIND.Volt))
-            fprintf("Predicted SOC =\t"); disp(testData.predStates(end, xIND.SOC))
-
             script_failSafes; %Run FailSafe Checks
             script_checkGUICmd; % Check to see if there are any commands from GUI
             % if limits are reached, break loop

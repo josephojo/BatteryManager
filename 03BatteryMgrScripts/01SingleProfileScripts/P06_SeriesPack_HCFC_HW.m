@@ -1,11 +1,6 @@
 %% Series-Pack Fast Charging
 % By Joseph Ojo
 %
-% The ECM battery model used in this file was adopted from the work by:
-%
-% Xinfan Lin, Hector Perez, Jason Siegel, Anna Stefanopoulou
-%
-%
 %% Change Current Directory
 
 % clearvars;
@@ -63,7 +58,7 @@ try
     end
     
     script_initializeDevices; % Run Script to initialize control devices
-    verbosity = 1; % Data measurements are fully displayed.
+%     verbosity = 1; % Data measurements are fully displayed.
 %     verbosity = 2; % Data measurements are not displayed since the results from the MPC will be.
     balBoard_num = 0; % ID for the main balancer board
     
@@ -347,7 +342,9 @@ end
 %% Initialize Plant variables and States 
 % #############  Initial States  ##############
 try
+    verbosity = 1; % Allow initial battery data to be displayed
     script_queryData; % Get initial states from device measurements.
+    verbosity = 0; % Prevent battery measurements to be shown every single time
 catch ME
     script_handleException;
 end
@@ -376,10 +373,10 @@ testData.cellSOC(end, :) = initialSOCs;
 % initialSOCs = testData.cellSOC(end, :)';
 
 
-battData.SOC            = initialSOCs(1:NUMCELLS, 1)';
-battData.Cap            = CAP;
-battData.AnodePot       = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
-                            zeros(NUMCELLS, 1), initialSOCs)';
+% battData.SOC            = initialSOCs(1:NUMCELLS, 1)';
+% battData.Cap            = CAP;
+% battData.AnodePot       = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
+%                             zeros(NUMCELLS, 1), initialSOCs)';
 
 ANPOT = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
             zeros(NUMCELLS, 1), initialSOCs)';
@@ -405,6 +402,7 @@ testData.optPSUCurr = zeros(1, NUMCELLS);
 testData.predStates = xk(:)';
 testData.predOutput = [testData.cellSOC(end, :), testData.Ts, testData.AnodePot];
 testData.sTime = 0;
+testData.SOC_Targets = testData.cellSOC(end, :);
 
 
 %% MPC - Configure Parameters
@@ -429,7 +427,7 @@ try
     % Small Rates affect speed a lot
     for i = 1:NUMCELLS
         mpcObj.MV(i).Max =  MAX_BAL_CURR;    mpcObj.MV(i).RateMax =  0.5; % MAX_CELL_CURR;
-        mpcObj.MV(i).Min =  0;               mpcObj.MV(i).RateMin = -0.5; % -2; % -6
+        mpcObj.MV(i).Min =  MIN_BAL_CURR;    mpcObj.MV(i).RateMin = -0.5; % -2; % -6
     end % MIN_BAL_CURR
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;
@@ -450,7 +448,7 @@ try
         
         % Optimal Cell Curr
         mpcObj.States(i + (xCurr-1) * NUMCELLS).Max =  0;
-        mpcObj.States(i + (xCurr-1) * NUMCELLS).Min =  -7.0;
+        mpcObj.States(i + (xCurr-1) * NUMCELLS).Min =  -10.0;
         
         % ANPOT
 %         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Max =  inf;
@@ -711,9 +709,7 @@ try
                                
                 % Disable Balancing if SOC is past range. MPC won't optimize
                 % for Balance currents past this range
-                if BalanceCellsFlag == true
-%                     bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = balCurr;
-                    
+                if BalanceCellsFlag == true                    
                     % send balance charges to balancer
                     bal.SetBalanceCharges(balBoard_num, balCurr*sampleTime); % Send charges in As
                 else
@@ -738,6 +734,21 @@ try
         if (( toc(testTimer)- prevStateTime ) >= readPeriod ) && ~isempty(mpcinfo)
             prevStateTime = toc(testTimer); 
 
+            % Allows the test data related to the MPC to be displayed right
+            % after the battery information regardless of what the
+            % verbosity is.
+            if verbosity == 1
+                printNow = true;
+            elseif verbosity == 0
+                if dotCounter < 59 % dotCounter is from [script_queryData]
+                    printNow = false;
+                else
+                    printNow = true;
+                end
+            else
+                printNow = false;
+            end
+            
             % Collect Measurements
             script_queryData;
             
@@ -746,43 +757,43 @@ try
                 ANPOT = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
                    interpCurr , testData.cellSOC(end, :)' );
 
-           testData.AnodePot(end+1, :) = ANPOT(:)';
-
-           SOC_Targets(end+1, :) = SOC_Target';
+           testData.AnodePot(end+1, :)      = ANPOT(:)';
+           testData.SOC_Targets(end+1, :)   = SOC_Target';
+           testData.predOutput(end+1, :)    = mdl_Y;
+           testData.predStates(end+1, :)    = xk(:)';
+           testData.balCurr(end+1, :)       = balCurr';
+           testData.optPSUCurr(end+1, :)    = optPSUCurr;
+           testData.Cost(end+1, :)          = cost;
+           testData.Iters(end+1, :)         = iters;
+           testData.ExitFlag(end+1, :)      = mpcinfo.ExitFlag;
+           sTime = [sTime; actual_STime];
+           testData.sTime(end+1, :)         = actual_STime;
+            
+           if printNow == true
+               MPCStr = ""; ANPOTStr = ""; balStr = "";
+               MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\t\tIters = %d\n", mpcinfo.ExitFlag, cost, iters);
+               
+               for i = 1:NUMCELLS-1
+                   ANPOTStr = ANPOTStr + sprintf("ANPOT %d = %.3f A/m^2\t", i, testData.AnodePot(end,i));
+                   balStr = balStr + sprintf("Bal %d = %.4f A\t", i, testData.balCurr(end,i));
+               end
+               
+               for i = i+1:NUMCELLS
+                   ANPOTStr = ANPOTStr + sprintf("ANPOT %d = %.3f A/m^2\n", i, testData.AnodePot(end,i));
+                   balStr = balStr + sprintf("Bal %d = %.4f A\n", i, testData.balCurr(end,i));
+               end
+               
+               fprintf(ANPOTStr + newline);
+               fprintf(balStr + newline);
+               fprintf(MPCStr + newline);
+               
+               timingStr = sprintf("Prev Opt Time: %.3f Secs", sTime(end, 1));
+               fprintf(timingStr + newline);
+               
+               fprintf("Predicted Voltage =\t"); disp(testData.predOutput(end, yIND.Volt))
+               fprintf("Predicted SOC =\t"); disp(testData.predStates(end, xIND.SOC))
+           end
            
-           testData.predOutput(end+1, :) = mdl_Y;
-           testData.predStates(end+1, :) = xk(:)';
-           testData.balCurr(end+1, :) = balCurr';
-           testData.optPSUCurr(end+1, :) = optPSUCurr;
-           testData.Cost(end+1, :)      = cost;
-           testData.Iters(end+1, :)     = iters;
-           testData.ExitFlag(end+1, :)  = mpcinfo.ExitFlag;
-           
-            MPCStr = ""; ANPOTStr = ""; balStr = "";
-            MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\t\tIters = %d\n", mpcinfo.ExitFlag, cost, iters);
-                
-            for i = 1:NUMCELLS-1
-                ANPOTStr = ANPOTStr + sprintf("ANPOT %d = %.3f A/m^2\t", i, testData.AnodePot(end,i));
-                balStr = balStr + sprintf("Bal %d = %.4f A\t", i, testData.balCurr(end,i));
-            end
-            
-            for i = i+1:NUMCELLS
-                ANPOTStr = ANPOTStr + sprintf("ANPOT %d = %.3f A/m^2\n", i, testData.AnodePot(end,i));
-                balStr = balStr + sprintf("Bal %d = %.4f A\n", i, testData.balCurr(end,i));
-            end
-                       
-            fprintf(ANPOTStr + newline);
-            fprintf(balStr + newline);
-            fprintf(MPCStr + newline);
-            
-            sTime = [sTime; actual_STime]; 
-            testData.sTime(end+1, :) = actual_STime;
-            timingStr = sprintf("Prev Opt Time: %.3f Secs", sTime(end, 1));
-            fprintf(timingStr + newline);
-            
-            fprintf("Predicted Voltage =\t"); disp(testData.predOutput(end, yIND.Volt))
-            fprintf("Predicted SOC =\t"); disp(testData.predStates(end, xIND.SOC))
-
             script_failSafes; %Run FailSafe Checks
             script_checkGUICmd; % Check to see if there are any commands from GUI
             % if limits are reached, break loop
