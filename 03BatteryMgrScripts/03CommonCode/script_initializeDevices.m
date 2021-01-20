@@ -241,7 +241,7 @@ elseif strcmpi(caller, "cmdWindow")
     
     %DC2100A Balancer
     %##########################################################################
-    balPort = 'COM9';
+    balPort = 'COM3'; %COM9
     if exist('testSettings', 'var') && isfield(testSettings, 'cellConfig')...
             && (strcmpi(testSettings.cellConfig, 'series') || strcmpi(testSettings.cellConfig, 'SerPar'))
         if ~exist('bal','var') ...

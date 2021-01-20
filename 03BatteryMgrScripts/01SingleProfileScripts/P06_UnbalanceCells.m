@@ -102,13 +102,13 @@ MAX_CELL_VOLT = batteryParam.maxVolt(battID)/numCells_Ser;
 MIN_CELL_VOLT = batteryParam.minVolt(battID)/numCells_Ser;
 MAX_BAL_SOC = 0.95; % Maximum SOC that that balancers will be active and the mpc will optimize for balance currents
 MIN_BAL_SOC = 0.05; % Minimum SOC that that balancers will be active and the mpc will optimize for balance currents
-ALLOWABLE_SOCDEV = 0.005; % The allowable SOC deviation 
-MIN_PSUCURR_4_BAL = -5.0; % The largest amount of current to use while balancing
+ALLOWABLE_SOCDEV = 0.02; % The allowable SOC deviation 
+MIN_PSUCURR_4_BAL = MIN_CELL_CURR + MAX_BAL_CURR; % The largest amount of current to use while balancing
 RATED_CAP = batteryParam.ratedCapacity(battID);
 
 % Set Balancer Voltage Thresholds
 bal.Set_OVUV_Threshold(MAX_CELL_VOLT(1, 1), MIN_CELL_VOLT(1, 1));
-wait(1);
+wait(0.5);
 
 % battery capacity
 CAP = batteryParam.cellCap{battID};  % battery capacity
@@ -594,7 +594,8 @@ try
     
     if ONLY_CHRG_FLAG == false
         if (max(testData.cellSOC(end, :) > MAX_BAL_SOC) ... % If at least one cell is  > MAX_BAL_SOC || < MIN_BAL_SOC
-                || max(testData.cellSOC(end, :) < MIN_BAL_SOC))
+                || max(testData.cellSOC(end, :) < MIN_BAL_SOC)...
+                || abs( max(xk(xIND.SOC)) - min(xk(xIND.SOC)) ) < ALLOWABLE_SOCDEV)
             BalanceCellsFlag = false; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
             predMdl.Curr.balWeight = 0;
             p2 = predMdl;

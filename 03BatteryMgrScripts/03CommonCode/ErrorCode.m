@@ -29,6 +29,9 @@ classdef ErrorCode
         COMMTEST_DATA_MISMATCH
         COMM_DC2100A_NOT_DETECTED
         
+        % MCU Errors
+        MCU_HARD_FAULT
+        
         % Parsing Errors
         USB_DELAYED
         USB_DROPPED

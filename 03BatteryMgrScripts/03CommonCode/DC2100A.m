@@ -162,7 +162,7 @@ classdef DC2100A < handle
         APP_FW_STRING_DEFAULT = "N/A        ";
         HELLOSTRING = "Hello ";
         DC2100A_IDSTRING = "DC2100A-A,LTC3300-1 demonstration board";
-        USB_PARSER_DEFAULT_STRING = "Not a recognized command!";
+        USB_PARSER_DEFAULT_STRING = "Not a recognized command";
         
         NUCLEO_BOARD_NUM = 0; % It makes a lot of things simpler if the board connected to the MCU always has the same address.
         
@@ -402,6 +402,8 @@ classdef DC2100A < handle
         
         sTime_MPC = 1;
         Val = 0;
+        
+        MCU_Fault
     end
 
     properties (Dependent)
@@ -647,7 +649,7 @@ classdef DC2100A < handle
                 = strlength(DC2100A.DC2100A_IDSTRING);
             
             obj.USB_Parser_Response_DataLengths(DC2100A.USB_PARSER_DEFAULT_COMMAND) ...
-                = strlength(DC2100A.USB_PARSER_DEFAULT_STRING);
+                = strlength(DC2100A.USB_PARSER_DEFAULT_STRING) + 3;
             
             obj.USB_Parser_Response_DataLengths(DC2100A.USB_PARSER_EMERGENCY_STOP_COMMAND) ...
                 = 1;
@@ -717,6 +719,9 @@ classdef DC2100A < handle
 %                         end
                     else
                         write(obj.serial, dataString, "char"); % Pass the string to write
+                        if obj.system_state == DC2100A.SYSTEM_STATE_TYPE.Awake
+                            disp(string(dataString))
+                        end
                         obj.USB_Comm_Can_Send = true;
                     end
                         
@@ -811,6 +816,7 @@ classdef DC2100A < handle
             while ind <= length(new_data)
                 key = obj.buf_in.peek();
                 
+                % Check to see if 
                 if(isKey(obj.USB_Parser_Response_DataLengths, key))
                     response_length = obj.USB_Parser_Response_DataLengths(key);
                     
@@ -833,18 +839,58 @@ classdef DC2100A < handle
                         % track of the input data
                         ind = ind + length(new_data);
                         obj.eventLog.Add(ErrorCode.USB_PARSER_NOTDONE,...
-                                "Data received is less than amount expected: " ...
-                                + strjoin(DC2100A.REMOVE_LEN(obj.buf_in, obj.buf_in.size)));
+                                "Data received is less than amount expected. "...
+                                + "Previous Cmd: " + obj.prevKey.peek() ...
+                                +"; Current Cmd: " + key + "; Data: " ...
+                                + string(DC2100A.REMOVE_LEN(obj.buf_in, obj.buf_in.size)));
                     end
                     
                     obj.prevKey.add(key);
                     if obj.prevKey.size > 10
                         obj.prevKey.remove();
                     end
+                elseif strcmpi(key, "+") % Used to catch Hard Faults sent from MbedOS MCU
+                    obj.MCU_Fault = true;
+                    configureCallback(obj.serial, "off");
+                    % Get the first data string that was sent
+                    displayData = string(DC2100A.REMOVE_LEN(obj.buf_in,...
+                        obj.buf_in.size))
+                    readData = ""; 
+
+                    hardFaultTimer = tic;
+                    timeout = 10; % 10 seconds
+                    % Get the whole message sent due to the HARD FAULT
+                    while obj.serial.NumBytesAvailable > 0 ... % ~contains(readData, "--")  ...
+                        && toc(hardFaultTimer) < timeout
+                        readData = readline(obj.serial);
+                        displayData = displayData + readData + newline;
+                    end
+                    
+                    obj.eventLog.Add(ErrorCode.MCU_HARD_FAULT, ...
+                        "Prev Cmd: " + obj.prevKey.peekLast()...
+                        + "; Data: " + newline + displayData);
+                    
+                    if strcmpi(extractBefore(readData, 3), "--" )
+                        if obj.useUSBTerminator == false
+                            configureCallback(obj.serial, "byte",...
+                                obj.serial.NumBytesAvailable ,@obj.USBDataIn_Callback);
+                        elseif obj.useUSBTerminator == true
+                            configureCallback(obj.serial, "terminator" ,...
+                                @obj.USBDataIn_Callback); 
+                        end
+                    end
                 else
-                    % Save the characters that were dropped, and write them into the Error log at the next good transaction.
-                    obj.USB_Parser_Buffer_Dropped = obj.USB_Parser_Buffer_Dropped + obj.buf_in.remove;
-%                     if strlength(obj.USB_Parser_Buffer_Dropped) > DC2100A.USB_MAX_PACKET_SIZE
+                    if strcmpi(obj.serial.BytesAvailableFcnMode, "terminator")
+                        unknownDataLen = obj.buf_in.size;
+                        for i = 2:unknownDataLen
+                            % Save the characters that were dropped, and write them into the Error log at the next good transaction.
+                            obj.USB_Parser_Buffer_Dropped = obj.USB_Parser_Buffer_Dropped + obj.buf_in.remove;
+                        end
+                    else
+                        % Save the characters that were dropped, and write them into the Error log at the next good transaction.
+                        obj.USB_Parser_Buffer_Dropped = obj.USB_Parser_Buffer_Dropped + obj.buf_in.remove;
+                    end
+                    
                     if obj.USB_Parser_Buffer_Dropped ~= "" && obj.buf_in.size == 0
                         prevCmds = obj.prevKey.peekLast();
                         obj.eventLog.Add(ErrorCode.USB_DROPPED, ...
@@ -910,10 +956,12 @@ classdef DC2100A < handle
                     
                 case DC2100A.USB_PARSER_DEFAULT_COMMAND
                     status = ErrorCode.NO_ERROR;
-                    if (DC2100A.REMOVE_LEN(obj.buf_in, len) ...
-                            ~= DC2100A.USB_PARSER_DEFAULT_STRING)
+                    msg = DC2100A.REMOVE_LEN(obj.buf_in, len);
+                    msgChr = char(msg);
+                    if contains(msg, DC2100A.USB_PARSER_DEFAULT_STRING)
                         obj.eventLog.Add(ErrorCode.USB_PARSER_UNKNOWN_COMMAND,...
-                            "Unknown command received by MCU.");
+                            "Command received by MCU = " + ...
+                            msgChr(end));
                         status = ErrorCode.USB_PARSER_UNKNOWN_COMMAND;
                     end
                     

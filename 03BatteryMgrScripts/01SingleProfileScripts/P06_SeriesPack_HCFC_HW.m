@@ -105,7 +105,7 @@ RATED_CAP = batteryParam.ratedCapacity(battID);
 
 % Set Balancer Voltage Thresholds
 bal.Set_OVUV_Threshold(MAX_CELL_VOLT(1, 1), MIN_CELL_VOLT(1, 1));
-wait(1);
+wait(2);
 
 % battery capacity
 CAP = batteryParam.cellCap{battID};  % battery capacity
@@ -149,7 +149,7 @@ indices.x = xIND;
 indices.y = yIND;
 
 
-TARGET_SOC = 0.62; %0.98;
+TARGET_SOC = 0.85; %0.98;
 ANPOT_Target = -0.1;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
 
 % Balance Efficiencies
@@ -448,7 +448,7 @@ try
         
         % Optimal Cell Curr
         mpcObj.States(i + (xCurr-1) * NUMCELLS).Max =  0;
-        mpcObj.States(i + (xCurr-1) * NUMCELLS).Min =  -10.0;
+        mpcObj.States(i + (xCurr-1) * NUMCELLS).Min =  -RATED_CAP;
         
         % ANPOT
 %         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Max =  inf;
@@ -573,7 +573,9 @@ try
     
     if ONLY_CHRG_FLAG == false
         if (max(testData.cellSOC(end, :) > MAX_BAL_SOC) ... % If at least one cell is  > MAX_BAL_SOC || < MIN_BAL_SOC
-                || max(testData.cellSOC(end, :) < MIN_BAL_SOC))
+                || max(testData.cellSOC(end, :) < MIN_BAL_SOC))...
+                || abs( max(xk(xIND.SOC)) - min(xk(xIND.SOC)) ) < ALLOWABLE_SOCDEV
+
             BalanceCellsFlag = false; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
             predMdl.Curr.balWeight = 0;
             p2 = predMdl;
@@ -651,7 +653,7 @@ try
                     p2 = predMdl;
                     options.Parameters = {p1, p2, p3, p4};
                     u = [zeros(NUMCELLS, 1); u(end)];
-                    mpcObj.MV(NUMCELLS + 1).Min = min(MIN_CELL_CURR);
+%                     mpcObj.MV(NUMCELLS + 1).Min = min(MIN_CELL_CURR);
                     
                 elseif max(testData.cellSOC(end, :) < MAX_BAL_SOC) ...
                         && min(testData.cellSOC(end, :) > MIN_BAL_SOC) ...
@@ -661,12 +663,12 @@ try
                     predMdl.Curr.balWeight = 1;
                     p2 = predMdl;
                     options.Parameters = {p1, p2, p3, p4};
-                    mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(testData.cellSOC(end, :));
+%                     mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL; % + max(testData.cellSOC(end, :));
                 end
                 
-                if BalanceCellsFlag == true
-                    mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(testData.cellSOC(end, :));
-                end
+%                 if BalanceCellsFlag == true
+%                     mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(testData.cellSOC(end, :));
+%                 end
             end
             
             % Run the MPC controller
@@ -824,15 +826,15 @@ try
     % Save Battery Parameters
     save(dataLocation + "007BatteryParam.mat", 'batteryParam');
     
-    if ~strcmpi(testStatus, "stop")
-        % Save Test Data
-        testSettings.saveDir = testSettings.saveDir + metadata.startDate...
-            +"_"+ metadata.startTime + "_Test_Successful\";
-    elseif strcmpi(testStatus, "stop")
+    if strcmpi(testStatus, "stop")
         % Save Test Data
         testSettings.saveDir = testSettings.saveDir + metadata.startDate...
             +"_"+ metadata.startTime + "_Test_ErroredOut\";
         testData.errCode = errorCode;
+    elseif ~strcmpi(testStatus, "stop")
+        % Save Test Data
+        testSettings.saveDir = testSettings.saveDir + metadata.startDate...
+            +"_"+ metadata.startTime + "_Test_Successful\";
     else 
         % Save Test Data
         testSettings.saveDir = testSettings.saveDir + metadata.startDate...
@@ -1077,7 +1079,7 @@ yIND = indices.y;
 p = data.PredictionHorizon;
 
 if predMdl.Curr.balWeight == 1
-    MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.1;
+    MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.15;
 else
     MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.02;
 end
