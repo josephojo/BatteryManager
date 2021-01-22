@@ -2,7 +2,7 @@
 % Check if data is available to save in order to avoid data loss
 if exist('testData', 'var') && ~isempty(testData.time)
     if testData.time(end) > 60
-        save(dataLocation + "script_DataBackup.mat", 'testData', 'metaData', '-append');
+        save(dataLocation + "script_DataBackup.mat", 'testData', 'metadata', '-append');
     end
 end
 
