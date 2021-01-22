@@ -79,8 +79,8 @@ sampleTime = 5; testSettings.sampleTime = sampleTime;% 0.5; % Sample time [s]
 readPeriod = 0.25; testSettings.readPeriod = readPeriod;% How often to read from plant
 prevTime = 0; prevElapsed = 0;
 
-% USE_PARALLEL = true;
-USE_PARALLEL = false;
+USE_PARALLEL = true;
+% USE_PARALLEL = false;
 testSettings.USE_PARALLEL = USE_PARALLEL;
 
 
@@ -106,7 +106,7 @@ RATED_CAP = batteryParam.ratedCapacity(battID);
 
 % Set Balancer Voltage Thresholds
 bal.Set_OVUV_Threshold(MAX_CELL_VOLT(1, 1), MIN_CELL_VOLT(1, 1));
-wait(2);
+wait(1);
 
 % battery capacity
 CAP = batteryParam.cellCap{battID};  % battery capacity
@@ -153,7 +153,7 @@ indices.y = yIND;
 TARGET_SOC = 0.85; %0.98;
 testSettings.TARGET_SOC = TARGET_SOC;
 
-ANPOT_Target = -0.1;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
+ANPOT_Target = 0;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
 
 % Balance Efficiencies
 chrgEff = 0.774; 
@@ -430,7 +430,7 @@ try
     % Small Rates affect speed a lot
     for i = 1:NUMCELLS
         mpcObj.MV(i).Max =  MAX_BAL_CURR;    mpcObj.MV(i).RateMax =  0.5; % MAX_CELL_CURR;
-        mpcObj.MV(i).Min =  MIN_BAL_CURR;    mpcObj.MV(i).RateMin = -0.5; % -2; % -6
+        mpcObj.MV(i).Min =  0;    mpcObj.MV(i).RateMin = -0.5; % -2; % -6
     end % MIN_BAL_CURR
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;
@@ -650,7 +650,7 @@ try
             if ONLY_CHRG_FLAG == false
                 if (max(testData.cellSOC(end, :) > MAX_BAL_SOC) ...
                         || min(testData.cellSOC(end, :) < MIN_BAL_SOC)) ...
-                        || abs( max(xk(xIND.SOC)) - min(xk(xIND.SOC)) ) < ALLOWABLE_SOCDEV
+                        || abs( max(xk(xIND.SOC)) - min(xk(xIND.SOC)) ) <= ALLOWABLE_SOCDEV
                     
                     BalanceCellsFlag = false;
                     predMdl.Curr.balWeight = 0;
@@ -794,7 +794,12 @@ try
                fprintf(MPCStr + newline);
                
                timingStr = sprintf("Prev Opt Time: %.3f Secs", sTime(end, 1));
-               fprintf(timingStr + newline);
+               if BalanceCellsFlag == true
+                   balStatusStr = "Balancing";
+               else
+                   balStatusStr = "NOT Balancing";
+               end
+               fprintf(timingStr + "\t\t Bal Status: " + balStatusStr + newline);
                
                fprintf("Predicted Voltage =\t"); disp(testData.predOutput(end, yIND.Volt))
                fprintf("Predicted SOC =\t"); disp(testData.predStates(end, xIND.SOC))
@@ -833,20 +838,26 @@ try
     if strcmpi(testStatus, "stop")
         % Save Test Data
         testSettings.saveDir = testSettings.saveDir + metadata.startDate...
-            +"_"+ metadata.startTime + "_Test_ErroredOut\";
+            +"_"+ metadata.startTime + "_HCFC_ErroredOut_" ...
+            + strjoin(string(errorCode(errorCode ~= ErrorCode.NO_ERROR)), "_")...
+            +"\";
         testData.errCode = errorCode;
     elseif ~strcmpi(testStatus, "stop")
         % Save Test Data
         testSettings.saveDir = testSettings.saveDir + metadata.startDate...
-            +"_"+ metadata.startTime + "_Test_Successful\";
+            +"_"+ metadata.startTime + "_HCFC_Successful\";
     else 
         % Save Test Data
         testSettings.saveDir = testSettings.saveDir + metadata.startDate...
-            +"_"+ metadata.startTime + "_Test_Failed\";
+            +"_"+ metadata.startTime + "_HCFC_Failed\";
         testData.errCode = errorCode;
     end
     % Save Data
     [saveStatus, saveMsg] = saveBattData(testData, metadata, testSettings);
+    eventLog.saveLogs(char(extractBefore(...
+        testSettings.saveDir,...
+        strlength(testSettings.saveDir)...
+                                            )));
     if saveStatus == false
         warning(saveMsg);
     else
@@ -1083,7 +1094,7 @@ yIND = indices.y;
 p = data.PredictionHorizon;
 
 if predMdl.Curr.balWeight == 1
-    MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.15;
+    MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.2;
 else
     MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.02;
 end

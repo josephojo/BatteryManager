@@ -152,7 +152,7 @@ indices.x = xIND;
 indices.y = yIND;
 
 
-TARGET_SOC = [0.45, 0.52, 0.5, 0.55]; %0.98;
+TARGET_SOC = [0.55, 0.50, 0.52, 0.45]; %0.98;
 testSettings.TARGET_SOC = TARGET_SOC;
 ANPOT_Target = -0.1;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
 
@@ -859,7 +859,9 @@ try
     elseif strcmpi(testStatus, "stop")
         % Save Test Data
         testSettings.saveDir = testSettings.saveDir + metadata.startDate...
-            +"_"+ metadata.startTime + "_"+extractAfter(fName, "_")+"_ErroredOut\";
+            +"_"+ metadata.startTime + "_"+extractAfter(fName, "_")+"_ErroredOut_" ...
+            + strjoin(string(errorCode(errorCode ~= ErrorCode.NO_ERROR)), "_")...
+            +"\";
         testData.errCode = errorCode;
     else 
         % Save Test Data
@@ -869,6 +871,10 @@ try
     end
     % Save Data
     [saveStatus, saveMsg] = saveBattData(testData, metadata, testSettings);
+    eventLog.saveLogs(char(extractBefore(...
+        testSettings.saveDir,...
+        strlength(testSettings.saveDir)...
+                                            )));
     if saveStatus == false
         warning(saveMsg);
     else
