@@ -128,7 +128,7 @@ classdef DC2100A < handle
         % ########------------------------------------------------
         
         % Variables to control rate at which commands are sent and responses are received
-        USB_COMM_TIMER_INTERVAL = 25;            % in ms
+        USB_COMM_TIMER_INTERVAL = 45;            % in ms
         USB_COMM_CYCLE_PERIOD_DEFAULT = 360;     % in ms
         USB_COMM_TIMER_INTERVALS_PER_BOARD = 5;  % in ms
         
@@ -479,7 +479,7 @@ classdef DC2100A < handle
     % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
     % PRIVATE METHODS
     % =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-    methods (Access  = private)
+    methods %(Access  = private)
         
         function obj = System_Init(obj, attached)
             try
@@ -649,7 +649,7 @@ classdef DC2100A < handle
                 = strlength(DC2100A.DC2100A_IDSTRING);
             
             obj.USB_Parser_Response_DataLengths(DC2100A.USB_PARSER_DEFAULT_COMMAND) ...
-                = strlength(DC2100A.USB_PARSER_DEFAULT_STRING) + 3;
+                = strlength(DC2100A.USB_PARSER_DEFAULT_STRING) + 2;
             
             obj.USB_Parser_Response_DataLengths(DC2100A.USB_PARSER_EMERGENCY_STOP_COMMAND) ...
                 = 1;
@@ -719,9 +719,9 @@ classdef DC2100A < handle
 %                         end
                     else
                         write(obj.serial, dataString, "char"); % Pass the string to write
-                        if obj.system_state == DC2100A.SYSTEM_STATE_TYPE.Awake
-                            disp(string(dataString))
-                        end
+%                         if obj.system_state == DC2100A.SYSTEM_STATE_TYPE.Awake
+%                             disp("Out: " + string(dataString))
+%                         end
                         obj.USB_Comm_Can_Send = true;
                     end
                         
@@ -797,7 +797,7 @@ classdef DC2100A < handle
             %                           a key containing a command. The
             %                           subsequent data is then parsed.
             %
-            
+%             disp("*")
             % Make sure data is an array of characters and not a string
             if strcmpi(class(new_data), 'string') && length(new_data)>1
                 s = strjoin(new_data, '');
@@ -808,6 +808,9 @@ classdef DC2100A < handle
                 disp("Just String")
             end
             
+%             if obj.system_state == DC2100A.SYSTEM_STATE_TYPE.Awake
+%                 disp("In: " + string(new_data))
+%             end
             
             % Add new Data to linked list
             DC2100A.ADD_RANGE(obj.buf_in, new_data, 1, length(new_data))
@@ -880,18 +883,19 @@ classdef DC2100A < handle
                         end
                     end
                 else
-                    if strcmpi(obj.serial.BytesAvailableFcnMode, "terminator")
-                        unknownDataLen = obj.buf_in.size;
-                        for i = 2:unknownDataLen
-                            % Save the characters that were dropped, and write them into the Error log at the next good transaction.
-                            obj.USB_Parser_Buffer_Dropped = obj.USB_Parser_Buffer_Dropped + obj.buf_in.remove;
-                        end
-                    else
-                        % Save the characters that were dropped, and write them into the Error log at the next good transaction.
-                        obj.USB_Parser_Buffer_Dropped = obj.USB_Parser_Buffer_Dropped + obj.buf_in.remove;
-                    end
+%                     if strcmpi(obj.serial.BytesAvailableFcnMode, "terminator")
+%                         unknownDataLen = obj.buf_in.size;
+%                         for i = 2:unknownDataLen
+%                             % Save the characters that were dropped, and write them into the Error log at the next good transaction.
+%                             obj.USB_Parser_Buffer_Dropped = obj.USB_Parser_Buffer_Dropped + obj.buf_in.remove;
+%                         end
+%                     else
+                    % Save the characters that were dropped, and write them into the Error log at the next good transaction.
+                    obj.USB_Parser_Buffer_Dropped = obj.USB_Parser_Buffer_Dropped + obj.buf_in.remove;
+%                     end
                     
-                    if obj.USB_Parser_Buffer_Dropped ~= "" && obj.buf_in.size == 0
+%                     if obj.USB_Parser_Buffer_Dropped ~= "" && obj.buf_in.size >= DC2100A.USB_MAX_PACKET_SIZE
+                    if strlength(obj.USB_Parser_Buffer_Dropped) > DC2100A.USB_MAX_PACKET_SIZE
                         prevCmds = obj.prevKey.peekLast();
                         obj.eventLog.Add(ErrorCode.USB_DROPPED, ...
                             "Prev Cmd: " + prevCmds + "; Data: " + obj.USB_Parser_Buffer_Dropped);
@@ -901,6 +905,7 @@ classdef DC2100A < handle
                 end
                 
             end
+%             disp("^")
         end
         
         
@@ -3420,6 +3425,8 @@ classdef DC2100A < handle
                 obj.port = upper(port);
                 s = serialport(obj.port, param.baudRate); %Creates a serial port object
                 obj.serial = s;
+                
+                configureTerminator(obj.serial,"LF","CR");
                 
                 flush(obj.serial);
                 

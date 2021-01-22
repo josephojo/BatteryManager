@@ -75,12 +75,13 @@ NUMCELLS = numCells_Ser;
 % % Write the number of cells to board to prevent OV/UV on unconnected channels
 % bal.Cell_Present_Write(balBoard_num, NUMCELLS); 
 
-sampleTime = 5; % 0.5; % Sample time [s]
-readPeriod = 0.25; % How often to read from plant
+sampleTime = 5; testSettings.sampleTime = sampleTime;% 0.5; % Sample time [s]
+readPeriod = 0.25; testSettings.readPeriod = readPeriod;% How often to read from plant
 prevTime = 0; prevElapsed = 0;
 
 % USE_PARALLEL = true;
 USE_PARALLEL = false;
+testSettings.USE_PARALLEL = USE_PARALLEL;
 
 
 try
@@ -150,6 +151,8 @@ indices.y = yIND;
 
 
 TARGET_SOC = 0.85; %0.98;
+testSettings.TARGET_SOC = TARGET_SOC;
+
 ANPOT_Target = -0.1;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
 
 % Balance Efficiencies
@@ -567,7 +570,7 @@ poolState = 'finished';
 ONLY_CHRG_FLAG = false;
 
 try     
-
+%% Setup
     y_Ts = thermoData(2:end);
     y = [ testData.cellVolt(end, :),  y_Ts(:)', ANPOT(:)'];
     
@@ -595,7 +598,8 @@ try
     tElapsed_plant = 0; prevStateTime = 0; prevMPCTime = 0;
     SOC_Targets = [];
     
-    while min(testData.cellSOC(end, :) <= TARGET_SOC)       
+%% Loop  
+    while min(testData.cellSOC(end, :) <= TARGET_SOC) && ~strcmpi(testStatus, "stop")     
         if ( toc(testTimer)- prevMPCTime ) >= sampleTime && strcmpi(poolState, "finished")
             tElapsed_MPC = toc(testTimer);
             actual_STime = tElapsed_MPC - prevMPCTime;
@@ -701,7 +705,7 @@ try
                 iters = mpcinfo.Iterations;
 
                 % Balancer and PSU Current
-                balCurr = optCurr(1:NUMCELLS);
+                optBalCurr = optCurr(1:NUMCELLS);
                 optPSUCurr = optCurr(end);
                 
                 
@@ -713,16 +717,16 @@ try
                 % for Balance currents past this range
                 if BalanceCellsFlag == true                    
                     % send balance charges to balancer
-                    bal.SetBalanceCharges(balBoard_num, balCurr*sampleTime); % Send charges in As
+                    bal.SetBalanceCharges(balBoard_num, optBalCurr*sampleTime); % Send charges in As
                 else
-                    bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = zeros(size(balCurr));
+                    bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = zeros(size(optBalCurr));
                 end
                 
                 tElapsed_plant = toc(testTimer);
                 
                 % Combine the PSU and BalCurr based on the balancer transformation
                 % matrix
-                combCurr = combineCurrents(optPSUCurr, balCurr, predMdl);
+                combCurr = combineCurrents(optPSUCurr, optBalCurr, predMdl);
                 
                 wait(0.05);
                 

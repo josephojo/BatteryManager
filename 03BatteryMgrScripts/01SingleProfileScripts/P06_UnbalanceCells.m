@@ -78,13 +78,13 @@ NUMCELLS = numCells_Ser;
 % % Write the number of cells to board to prevent OV/UV on unconnected channels
 % bal.Cell_Present_Write(balBoard_num, NUMCELLS); 
 
-sampleTime = 5; % 0.5; % Sample time [s]
-readPeriod = 0.5; % How often to read from plant
+sampleTime = 5; testSettings.sampleTime = sampleTime;% 0.5; % Sample time [s]
+readPeriod = 0.5; testSettings.readPeriod = readPeriod;% How often to read from plant
 prevTime = 0; prevElapsed = 0;
 
 USE_PARALLEL = true;
 % USE_PARALLEL = false;
-
+testSettings.USE_PARALLEL = USE_PARALLEL;
 
 try
     MIN_BAL_CURR = -2; %[-0.5, -0.5, -0.5, -0.5]';
@@ -102,7 +102,7 @@ MAX_CELL_VOLT = batteryParam.maxVolt(battID)/numCells_Ser;
 MIN_CELL_VOLT = batteryParam.minVolt(battID)/numCells_Ser;
 MAX_BAL_SOC = 0.95; % Maximum SOC that that balancers will be active and the mpc will optimize for balance currents
 MIN_BAL_SOC = 0.05; % Minimum SOC that that balancers will be active and the mpc will optimize for balance currents
-ALLOWABLE_SOCDEV = 0.02; % The allowable SOC deviation 
+ALLOWABLE_SOCDEV = 0.01; % The allowable SOC deviation 
 MIN_PSUCURR_4_BAL = MIN_CELL_CURR + MAX_BAL_CURR; % The largest amount of current to use while balancing
 RATED_CAP = batteryParam.ratedCapacity(battID);
 
@@ -153,6 +153,7 @@ indices.y = yIND;
 
 
 TARGET_SOC = [0.45, 0.52, 0.5, 0.55]; %0.98;
+testSettings.TARGET_SOC = TARGET_SOC;
 ANPOT_Target = -0.1;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
 
 % Balance Efficiencies
@@ -589,6 +590,7 @@ printNow = false; % Variable to decide when to print test data
 
 try     
 
+    % Setup
     y_Ts = thermoData(2:end);
     y = [ testData.cellVolt(end, :),  y_Ts(:)', ANPOT(:)'];
     
@@ -614,7 +616,8 @@ try
     sTime = [];readTime = [];
     tElapsed_plant = 0; prevStateTime = 0; prevMPCTime = 0;
     
-    while max(abs(TARGET_SOC - testData.cellSOC(end, :)) > 0.0005) == 1  % min(testData.cellSOC(end, :) <= TARGET_SOC)       
+%% loop
+    while (max(abs(TARGET_SOC - testData.cellSOC(end, :)) > 0.0005) == 1) && ~strcmpi(testStatus, "stop")     
         if ( toc(testTimer)- prevMPCTime ) >= sampleTime && strcmpi(poolState, "finished")
             tElapsed_MPC = toc(testTimer);
             actual_STime = tElapsed_MPC - prevMPCTime;
