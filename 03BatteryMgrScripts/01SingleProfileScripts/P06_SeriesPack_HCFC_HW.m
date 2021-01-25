@@ -153,7 +153,7 @@ indices.y = yIND;
 TARGET_SOC = 0.85; %0.98;
 testSettings.TARGET_SOC = TARGET_SOC;
 
-ANPOT_Target = 0;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
+ANPOT_Target = 0.01;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
 
 % Balance Efficiencies
 chrgEff = 0.774; 
@@ -430,7 +430,7 @@ try
     % Small Rates affect speed a lot
     for i = 1:NUMCELLS
         mpcObj.MV(i).Max =  MAX_BAL_CURR;    mpcObj.MV(i).RateMax =  0.5; % MAX_CELL_CURR;
-        mpcObj.MV(i).Min =  0;    mpcObj.MV(i).RateMin = -0.5; % -2; % -6
+        mpcObj.MV(i).Min =  MIN_BAL_CURR;    mpcObj.MV(i).RateMin = -0.5; % -2; % -6
     end % MIN_BAL_CURR
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;
