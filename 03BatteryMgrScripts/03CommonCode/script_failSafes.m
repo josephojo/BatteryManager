@@ -57,25 +57,25 @@ for cell_Ind = 1:numCells_Ser
 end
 
 [alarmState, alarm] = psu.getAlarmCode();
-al = 0;
+AL = 0;
 if alarmState == true
-    al = al+1;
-    if al <= 5
+    AL = AL+1;
+    if AL <= 5
         warning("PSU AlarmState is True. Cause: " + alarm);
     end
-    if al == 1
+    if AL == 1
         notifyOwnerEmail("PSU AlarmState is True. Cause: " + alarm)
     end
 end
 
 [alarmState, alarm] = psu.getAlarmCode();
-al = 0;
+AL = 0;
 if alarmState == true
-    al = al+1;
-    if al <= 5
+    AL = AL+1;
+    if AL <= 5
         warning("PSU AlarmState is True. Cause: " + alarm);
     end
-    if a1 == 1 || mod(al, 100)==0 % Notify user every 100 times alarm remains
+    if AL == 1 || mod(AL, 100)==0 % Notify user every 100 times alarm remains
         notifyOwnerEmail("PSU AlarmState is True. Cause: " + alarm)
     end
 end
