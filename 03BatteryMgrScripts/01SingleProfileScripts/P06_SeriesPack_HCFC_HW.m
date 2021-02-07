@@ -98,7 +98,7 @@ MAX_CHRG_VOLT = batteryParam.chargedVolt(battID)/numCells_Ser;
 MIN_DCHRG_VOLT = batteryParam.dischargedVolt(battID)/numCells_Ser;
 MAX_CELL_VOLT = batteryParam.maxVolt(battID)/numCells_Ser;
 MIN_CELL_VOLT = batteryParam.minVolt(battID)/numCells_Ser;
-MAX_BAL_SOC = 0.70; % Maximum SOC that that balancers will be active and the mpc will optimize for balance currents
+MAX_BAL_SOC = 0.60; % Maximum SOC that that balancers will be active and the mpc will optimize for balance currents
 MIN_BAL_SOC = 0.05; % Minimum SOC that that balancers will be active and the mpc will optimize for balance currents
 ALLOWABLE_SOCDEV = 0.002; % The allowable SOC deviation 
 RATED_CAP = batteryParam.ratedCapacity(battID);
@@ -665,30 +665,30 @@ try
                     for i = 1:NUMCELLS
                         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Min =  0;
                     end
-% 
-%                 elseif max(testData.cellSOC(end, :) < MAX_BAL_SOC) ...
-%                         && min(testData.cellSOC(end, :) > MIN_BAL_SOC) ...
-%                         && (max(abs(predMdl.SOC.devMat * xk(xIND.SOC))) >= ALLOWABLE_SOCDEV)
-%                     
-%                     % If any of the cells are close to max voltage,
-%                     % manually reduce the PSU current limit.
-%                     % This is really not ideal, the mpc should be able to
-%                     % figure this out itself
-%                     if max(testData.cellVolt(end, :) > 3.85)
-%                         mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_HIVOLTBAL; % + max(testData.cellSOC(end, :));
-%                         u(end) = 0;
-%                     else
-%                         mpcObj.MV(NUMCELLS + 1).Min = DfltMinPSUVal;
-%                     end
-%                     BalanceCellsFlag = true;
-%                     predMdl.Curr.balWeight = 1;
-%                     p2 = predMdl;
-%                     options.Parameters = {p1, p2, p3, p4};
-%                     % Allow Anode potential to reach zero since it is not
-%                     % balancing (spiking)
-%                     for i = 1:NUMCELLS
-%                         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Min =  ANPOT_Target;
-%                     end
+                    
+                elseif max(testData.cellSOC(end, :) < MAX_BAL_SOC) ...
+                        && min(testData.cellSOC(end, :) > MIN_BAL_SOC) ...
+                        && (max(abs(predMdl.SOC.devMat * xk(xIND.SOC))) >= ALLOWABLE_SOCDEV)
+                    
+                    % If any of the cells are close to max voltage,
+                    % manually reduce the PSU current limit.
+                    % This is really not ideal, the mpc should be able to
+                    % figure this out itself
+                    if max(testData.cellVolt(end, :) > 3.85)
+                        mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_HIVOLTBAL; % + max(testData.cellSOC(end, :));
+                        u(end) = 0;
+                    else
+                        mpcObj.MV(NUMCELLS + 1).Min = DfltMinPSUVal;
+                    end
+                    BalanceCellsFlag = true;
+                    predMdl.Curr.balWeight = 1;
+                    p2 = predMdl;
+                    options.Parameters = {p1, p2, p3, p4};
+                    % Allow Anode potential to reach zero since it is not
+                    % balancing (spiking)
+                    for i = 1:NUMCELLS
+                        mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Min =  ANPOT_Target;
+                    end
                 end
                 
 %                 if BalanceCellsFlag == true
