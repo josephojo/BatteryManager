@@ -154,7 +154,7 @@ try
     
     
     % While the battery voltage is less than the limit (cc mode)
-    while testData.packVolt(end, :) <= targVolt
+    while round(testData.packVolt(end, :),1) < targVolt
         %% Measurements
         % Querys all measurements every readPeriod second(s)
         if toc(testTimer) - timerPrev(3) >= readPeriod

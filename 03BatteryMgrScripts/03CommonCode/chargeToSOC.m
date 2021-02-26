@@ -149,6 +149,7 @@ try
     script_failSafes; %Run FailSafe Checks
     if errorCode == 1 || strcmpi(testStatus, "stop")
         script_idle;
+        script_resetDevices;
         return;
     end
     script_charge; % Run Script to begin/update charging process
@@ -157,7 +158,7 @@ try
         trackSOCFS = false; % Don't complain/warn the user if the SOC goes beyond 1 since we're tracking voltage
         %% CC mode
         % While the battery voltage is less than the limit (our 100% SOC)
-        while testData.packVolt(end, :) < highVoltLimit
+        while round(testData.packVolt(end, :), 1) < highVoltLimit
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -179,7 +180,7 @@ try
         
         %% CV Mode
         % While the battery voltage is less than the limit (our 100% SOC) (CC mode)
-        while abs(testData.packCurr(end, :)) > abs(cvMinCurr) % Cuz Charge current is negative
+        while abs(round(testData.packCurr(end, :), 1)) > abs(cvMinCurr) % Cuz Charge current is negative
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -202,7 +203,7 @@ try
         batteryParam.soc(battID) = 1; % 100% Charged
     else
         % While the current SOC is less than the specified soc
-        while testData.packSOC(end, :) < targSOC
+        while round(testData.packSOC(end, :), 1) < targSOC
             %% CCCV, Measurements and FailSafes
             if testData.packVolt(end, :) < highVoltLimit ...
                     || abs(testData.packCurr(end, :)) > abs(cvMinCurr)

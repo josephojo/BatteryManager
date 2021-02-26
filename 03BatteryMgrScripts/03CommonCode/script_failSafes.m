@@ -24,21 +24,21 @@ for cell_Ind = 1:numCells_Ser
     %         %     errorCode = 1;
     %     else
     if testData.cellVolt(end, cell_Ind) <= batteryParam.minVolt(battID)/numCells_Ser % Dividing by numCells in series since minVolt is for the series stack
-        script_queryData;
-        if testData.cellVolt(end, cell_Ind) <= batteryParam.minVolt(battID)/numCells_Ser % Dividing by numCells in series since minVolt is for the series stack
+%         script_queryData;
+%         if testData.cellVolt(end, cell_Ind) <= batteryParam.minVolt(battID)/numCells_Ser % Dividing by numCells in series since minVolt is for the series stack
             error = sprintf("Battery VOLTAGE for Cell("+cell_Ind+", :) in " + battID + " is Less than Limit: %.2f V", testData.cellVolt(end, cell_Ind));
             warning(error);
             errorCode(cell_Ind) = ErrorCode.UV;
             testStatus = "stop";
-        end
+%         end
     elseif testData.cellVolt(end, cell_Ind) >= batteryParam.maxVolt(battID)/numCells_Ser % Dividing by numCells in series since maxVolt is for the series stack
-        script_queryData; % Check again
-        if testData.cellVolt(end, cell_Ind) >= batteryParam.maxVolt(battID)/numCells_Ser % Dividing by numCells in series since maxVolt is for the series stack
+%         script_queryData; % Check again
+%         if testData.cellVolt(end, cell_Ind) >= batteryParam.maxVolt(battID)/numCells_Ser % Dividing by numCells in series since maxVolt is for the series stack
             error = sprintf("Battery VOLTAGE for Cell("+cell_Ind+", :) in " + battID + " is Greater than Limit: %.2f V", testData.cellVolt(end, cell_Ind));
             warning(error);
             errorCode(cell_Ind) = ErrorCode.OV;
             testStatus = "stop";
-        end
+%         end
     elseif testData.cellCurr(end, cell_Ind) < batteryParam.minCurr(battID) %/numCells_Par % During Charge
         error = sprintf("Battery CURRENT for Cell("+cell_Ind+", :) in " + battID + " is Less than Limit: %.2f A", testData.cellCurr(end, cell_Ind));
         warning(error);

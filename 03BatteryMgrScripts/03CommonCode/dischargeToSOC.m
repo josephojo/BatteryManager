@@ -153,7 +153,7 @@ try
     if targSOC == 0        
         trackSOCFS = false; % Don't complain/warn the user if the SOC goes below 0 since we're tracking voltage
         % While packVolt is greater than low limit
-        while testData.packVolt(end, :) >= lowVoltLimit
+        while round(testData.packVolt(end, :), 1) > lowVoltLimit
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -176,7 +176,7 @@ try
 
     else
         % While SOC is greater than specified
-        while testData.packSOC(end, :) > targSOC
+        while round(testData.packSOC(end, :), 1) > targSOC
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod

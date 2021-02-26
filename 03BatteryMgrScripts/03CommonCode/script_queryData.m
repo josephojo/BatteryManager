@@ -99,7 +99,7 @@ elseif ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMe
     if strcmpi(battState, "discharging")
         testData.packVolt(end+1, :) = eload.MeasureVolt();
     elseif strcmpi(battState, "charging")
-        testData.packVolt(end+1, :) = psu.measureVolt();
+        testData.packVolt(end+1, :) = eload.MeasureVolt();
     elseif strcmpi(battState, "idle")
         testData.packVolt(end+1, :) = eload.MeasureVolt();
     end

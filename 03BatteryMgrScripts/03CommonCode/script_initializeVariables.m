@@ -51,9 +51,19 @@ end
 %% Configure Relay pins on the LAbJack MCU
 if caller == "gui"
     LJ_powerDev_RelayPins = sysMCUArgs.relayPins;
+    
+    % Pin to activate relay to allow the LJ MCU to measure Voltage. 
+    % This is needed so that the MCU can measure a more accurate voltage. 
+    % Keep in mind though that the MCU cannot measure series voltage
+    % past 5V
     LJ_MeasVoltPin = 7; %#TODO Need to create a field for this in sysMCUArgs
 else
     LJ_powerDev_RelayPins = [5, 6]; % Power Device Switching pins
+    
+    % Pin to activate relay to allow the LJ MCU to measure Voltage. 
+    % This is needed so that the MCU can measure a more accurate voltage. 
+    % Keep in mind though that the MCU cannot measure series voltage
+    % past 5V
     LJ_MeasVoltPin = 7;
 end
 
@@ -167,8 +177,12 @@ else
         cellConfig = testSettings.cellConfig;
     end
 
-    if strcmpi(cellConfig, "single")
-        testSettings.voltMeasDev = "mcu";
+    if strcmpi(cellConfig, "single") || strcmpi(cellConfig, "parallel") 
+        if batteryParam.chargedVolt(battID) > 5.0
+            testSettings.voltMeasDev = "powerDev";
+        else
+            testSettings.voltMeasDev = "mcu";
+        end
     elseif strcmpi(cellConfig, "series") || strcmpi(cellConfig, "SerPar")
         testSettings.voltMeasDev = "balancer";
         testSettings.currMeasDev = "balancer";
@@ -265,7 +279,8 @@ highVoltLimit = battProp.chargedVolt(battID);  % sum(batteryParam.chargedVolt(ce
 lowVoltLimit  = battProp.dischargedVolt(battID); 
 
 chargeReq = 0; % Charge Request - true/1 = Charging, false/0 = discharging
-chargeVolt = highVoltLimit + 0.003; % Due to the small resistance in the wiring
+% Due to the small resistance in the wiring
+chargeVolt = highVoltLimit + 0.009; % 0.009 is used here since failsafe limit is (+0.01)
 
 prevSOC = battProp.soc(battID); % Previous SOC for the Pack
 
