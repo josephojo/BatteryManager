@@ -1,6 +1,8 @@
 %% Series-Pack Fast Charging
 % By Joseph Ojo
-%
+% This script runs the HCFC algorithm using the SOC DEV Tranformation
+% matric in Moura et al. Balancing only occurs once in this test.
+
 %% Change Current Directory
 
 % clearvars;
@@ -10,9 +12,6 @@
 % cd(mainPath)
 
 % clearvars -except bal eventLog; clc
-
-%%
-warning('on','backtrace')
 
 %% Initialize Variables and Devices
 try
@@ -79,36 +78,31 @@ NUMCELLS = numCells_Ser;
 % bal.Cell_Present_Write(balBoard_num, NUMCELLS); 
 
 sampleTime = 5; testSettings.sampleTime = sampleTime;% 0.5; % Sample time [s]
-readPeriod = 0.5; testSettings.readPeriod = readPeriod;% How often to read from plant
+readPeriod = 0.25; testSettings.readPeriod = readPeriod;% How often to read from plant
 prevTime = 0; prevElapsed = 0;
 
 USE_PARALLEL = true;
 % USE_PARALLEL = false;
 testSettings.USE_PARALLEL = USE_PARALLEL;
 
-try
-    MIN_BAL_CURR = -2; %[-0.5, -0.5, -0.5, -0.5]';
-    MAX_BAL_CURR = 2; % [0.5, 0.5, 0.5, 0.5]';
 
-catch ME
-    script_handleException;
-end   
-
+MIN_BAL_CURR = -2; %[-0.5, -0.5, -0.5, -0.5]';
+MAX_BAL_CURR = 2; % [0.5, 0.5, 0.5, 0.5]';
 MAX_CELL_CURR = batteryParam.maxCurr(battID); % /numCells_Par; % This should be for each single/parallel cells connected in series
 MIN_CELL_CURR = batteryParam.minCurr(battID); % /numCells_Par;
 MAX_CHRG_VOLT = batteryParam.chargedVolt(battID)/numCells_Ser;
 MIN_DCHRG_VOLT = batteryParam.dischargedVolt(battID)/numCells_Ser;
 MAX_CELL_VOLT = batteryParam.maxVolt(battID)/numCells_Ser;
 MIN_CELL_VOLT = batteryParam.minVolt(battID)/numCells_Ser;
-MAX_BAL_SOC = 0.95; % Maximum SOC that that balancers will be active and the mpc will optimize for balance currents
+MAX_BAL_SOC = 0.40; % Maximum SOC that that balancers will be active and the mpc will optimize for balance currents
 MIN_BAL_SOC = 0.05; % Minimum SOC that that balancers will be active and the mpc will optimize for balance currents
-ALLOWABLE_SOCDEV = 0.01; % The allowable SOC deviation 
-MIN_PSUCURR_4_BAL = MIN_CELL_CURR + MAX_BAL_CURR; % The largest amount of current to use while balancing
+ALLOWABLE_SOCDEV = 0.002; % The allowable SOC deviation 
 RATED_CAP = batteryParam.ratedCapacity(battID);
+MIN_PSUCURR_4_HIVOLTBAL = -(RATED_CAP/30); % The largest amount of current to use while balancing
 
 % Set Balancer Voltage Thresholds
 bal.Set_OVUV_Threshold(MAX_CELL_VOLT(1, 1), MIN_CELL_VOLT(1, 1));
-wait(0.5);
+wait(1);
 
 % battery capacity
 CAP = batteryParam.cellCap{battID};  % battery capacity
@@ -152,9 +146,10 @@ indices.x = xIND;
 indices.y = yIND;
 
 
-TARGET_SOC = [0.15, 0.20, 0.12, 0.10]; %[0.6, 0.6, 0.6, 0.6]; % 
+TARGET_SOC = 0.9; % 0.85; %0.98;
 testSettings.TARGET_SOC = TARGET_SOC;
-ANPOT_Target = 0;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
+
+ANPOT_Target = 0.01;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
 
 % Balance Efficiencies
 chrgEff = 0.774; 
@@ -178,24 +173,11 @@ try
     % ######## Voltage Model ########
     load(dataLocation + "008OCV_" + battID + ".mat", 'OCV', 'SOC'); 
     
-%     C1 = 47.827;
-%     C2 = 8.5956e+05;
-%     R1 = 0.0022329;
-%     R2 = 0.046958;
-%     Rs = 0.05867;
-    
-%     C1 = 4997.5;
-%     C2 = 1e+06;
-%     R1 = 0.0047459;
-%     R2 = 0.0098593;
-%     Rs = 0.050833;
-    
-    % Estimated from Dschrg and Chrg Data (Cyc_2 AD0)
-    C1 = 2472;
-    C2 = 5778.8;
-    R1 = 0.0010036;
-    R2 = 0.005064;
-    Rs = 0.049548;
+    C1 = 47.827;
+    C2 = 8.5956e+05;
+    R1 = 0.0022329;
+    R2 = 0.046958;
+    Rs = 0.05867;
     
     C1 = C1 * ones(1, NUMCELLS);
     C2 = C2 * ones(1, NUMCELLS);
@@ -305,7 +287,7 @@ try
     
     
     % ######## SOC Deviation Matrix ########
-    % 3 SOC Differences
+% %     3 SOC Differences
 %     L2 = [zeros(NUMCELLS-1, 1), (-1 * eye(NUMCELLS-1))];
 %     L1 = eye(NUMCELLS);
 %     L1(end, :) = [];
@@ -359,9 +341,9 @@ end
 %% Initialize Plant variables and States 
 % #############  Initial States  ##############
 try
-    verbosity = 1;
+    verbosity = 1; % Allow initial battery data to be displayed
     script_queryData; % Get initial states from device measurements.
-%     verbosity = 0;
+%     verbosity = 0; % Prevent battery measurements to be shown every single time
 catch ME
     script_handleException;
 end
@@ -369,15 +351,6 @@ end
 Tf = thermoData(1); % Ambient Temp
 tempMdl.Tf = Tf; % Ambient Temp
 predMdl.Temp = tempMdl;
-
-
-battData = struct;
-battData.time           = 0;
-battData.Ts             = thermoData(2:end);    % Surface Temp
-battData.Tc             = thermoData(2:end);    % Initialize core temperature to surf Temp
-battData.Tf             = Tf;                   % Ambient Temp
-battData.volt           = testData.cellVolt(end, :);
-battData.curr           = testData.cellCurr(end, :); % zeros(1, NUMCELLS);
 
 
 % Using OCV vs SOC to initialize the cell SOCs based on their resting voltages
@@ -389,11 +362,6 @@ testData.cellSOC(end, :) = initialSOCs;
 % Using SOC stored from previous test
 % initialSOCs = testData.cellSOC(end, :)';
 
-
-battData.SOC            = initialSOCs(1:NUMCELLS, 1)';
-battData.Cap            = CAP;
-battData.AnodePot       = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
-                            zeros(NUMCELLS, 1), initialSOCs)';
 
 ANPOT = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
             zeros(NUMCELLS, 1), initialSOCs)';
@@ -434,7 +402,7 @@ try
     mpcObj.Model.NumberOfParameters = 4; % dt and capacity
     
     PH = 5;  % Prediction horizon
-    CH = 3;  % Control horizon
+    CH = 2;  % Control horizon
     mpcObj.Ts = sampleTime;
     mpcObj.PredictionHorizon = PH;
     mpcObj.ControlHorizon = CH;
@@ -442,13 +410,13 @@ try
     % Constraints
     % Add Manipulated variable constraints
     % Small Rates affect speed a lot
-    for i = 1:NUMCELLS % 
-        mpcObj.MV(i).Max =  MAX_BAL_CURR;     mpcObj.MV(i).RateMax =  1.0; % MAX_CELL_CURR;
-        mpcObj.MV(i).Min =  MIN_BAL_CURR;     mpcObj.MV(i).RateMin = -1.0; % -2; % -6
-    end % 
+    for i = 1:NUMCELLS
+        mpcObj.MV(i).Max =  MAX_BAL_CURR;    mpcObj.MV(i).RateMax =  0.5; % MAX_CELL_CURR;
+        mpcObj.MV(i).Min =  MIN_BAL_CURR;    mpcObj.MV(i).RateMin = -0.5; % -2; % -6
+    end % MIN_BAL_CURR
     
-    mpcObj.MV(NUMCELLS + 1).Max = MAX_CELL_CURR + MIN_BAL_CURR;
-    mpcObj.MV(NUMCELLS + 1).Min = MIN_CELL_CURR + MAX_BAL_CURR; % MIN_PSUCURR_4_BAL; % 
+    mpcObj.MV(NUMCELLS + 1).Max =  0;
+    mpcObj.MV(NUMCELLS + 1).Min = (MIN_CELL_CURR + MAX_BAL_CURR); % MIN_PSUCURR_4_BAL; % 
     mpcObj.MV(NUMCELLS + 1).RateMax =  2; % MAX_CELL_CURR;
     mpcObj.MV(NUMCELLS + 1).RateMin = -2; % -6
     
@@ -464,10 +432,8 @@ try
         mpcObj.States(i + (xTs-1) * NUMCELLS).ScaleFactor =  44;
         
         % Optimal Cell Curr
-        mpcObj.States(i + (xCurr-1) * NUMCELLS).Max =  10; % 1C
-        mpcObj.States(i + (xCurr-1) * NUMCELLS).Min =  -7.0;
-        mpcObj.States(i + (xCurr-1) * NUMCELLS).ScaleFactor = 10 - (-7);
-
+        mpcObj.States(i + (xCurr-1) * NUMCELLS).Max =  0;
+        mpcObj.States(i + (xCurr-1) * NUMCELLS).Min =  -RATED_CAP;
         
         % ANPOT
 %         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Max =  inf;
@@ -513,7 +479,7 @@ try
     mpcinfo = [];
     
     % SOC tracking, ANPOT tracking, and temp rise rate cuz refs have to equal number of outputs
-    references = [TARGET_SOC(:)', repmat(ANPOT_Target, 1, NUMCELLS),... % ]; %
+    references = [repmat(TARGET_SOC, 1, NUMCELLS), repmat(ANPOT_Target, 1, NUMCELLS),... % ]; %
          repmat(3, 1, NUMCELLS)];
     
     u0 = [zeros(1, NUMCELLS), 0];
@@ -585,48 +551,48 @@ poolState = 'finished';
 % ONLY_CHRG_FLAG = true;
 ONLY_CHRG_FLAG = false;
 
-printNow = false; % Variable to decide when to print test data
-
-
 try     
-
-    % Setup
+%% Setup
     y_Ts = thermoData(2:end);
     y = [ testData.cellVolt(end, :),  y_Ts(:)', ANPOT(:)'];
-    BalanceCellsFlag = true;
-%     if ONLY_CHRG_FLAG == false
-%         if (max(testData.cellSOC(end, :) > MAX_BAL_SOC) ... % If at least one cell is  > MAX_BAL_SOC || < MIN_BAL_SOC
-%                 || max(testData.cellSOC(end, :) < MIN_BAL_SOC)...
-%                 || abs( max(xk(xIND.SOC)) - min(xk(xIND.SOC)) ) < ALLOWABLE_SOCDEV)
-%             BalanceCellsFlag = false; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
-%             predMdl.Curr.balWeight = 0;
-%             p2 = predMdl;
-%             options.Parameters = {p1, p2, p3, p4};
-%         elseif max(testData.cellSOC(end, :) < MAX_BAL_SOC) ... % If all cells are > MIN_BAL_SOC && < MAX_BAL_SOC
-%                 && min(testData.cellSOC(end, :) > MIN_BAL_SOC)
-%             BalanceCellsFlag = true; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
-%             predMdl.Curr.balWeight = 1;
-%         end
-%     else
-%         BalanceCellsFlag = false; % Flag to set when SOC is greater than limit for balancing
-%         predMdl.Curr.balWeight = 0;
-%         p2 = predMdl;
-%         options.Parameters = {p1, p2, p3, p4};
-%     end
+    
+    if ONLY_CHRG_FLAG == false
+        if (max(testData.cellSOC(end, :) > MAX_BAL_SOC) ... % If at least one cell is  > MAX_BAL_SOC || < MIN_BAL_SOC
+                || max(testData.cellSOC(end, :) < MIN_BAL_SOC))...
+                || abs( max(xk(xIND.SOC)) - min(xk(xIND.SOC)) ) < ALLOWABLE_SOCDEV
+
+            BalanceCellsFlag = false; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
+            predMdl.Curr.balWeight = 0;
+            p2 = predMdl;
+            options.Parameters = {p1, p2, p3, p4};
+        elseif max(testData.cellSOC(end, :) < MAX_BAL_SOC) ... % If all cells are > MIN_BAL_SOC && < MAX_BAL_SOC
+                && min(testData.cellSOC(end, :) > MIN_BAL_SOC)
+            BalanceCellsFlag = true; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
+            predMdl.Curr.balWeight = 1;
+        end
+    else
+        BalanceCellsFlag = false; % Flag to set when SOC is greater than limit for balancing
+        predMdl.Curr.balWeight = 0;
+        p2 = predMdl;
+        options.Parameters = {p1, p2, p3, p4};
+    end
     sTime = [];readTime = [];
     tElapsed_plant = 0; prevStateTime = 0; prevMPCTime = 0;
-    
-%% loop
-    while (max(abs(TARGET_SOC - round(testData.cellSOC(end, :), 3)) > 0.0005) == 1) && ~strcmpi(testStatus, "stop")     
+    SOC_Targets = [];
+    DfltMinPSUVal = mpcObj.MV(NUMCELLS + 1).Min;
+    mdl_X = P06_BattStateFcn_HW(xk, u, p1, p2, p3, p4);
+%% Loop  
+    while min(testData.cellSOC(end, :) <= TARGET_SOC) && ~strcmpi(testStatus, "stop")     
         if ( toc(testTimer)- prevMPCTime ) >= sampleTime && strcmpi(poolState, "finished")
             tElapsed_MPC = toc(testTimer);
             actual_STime = tElapsed_MPC - prevMPCTime;
             prevMPCTime = tElapsed_MPC;
 
-            idealTimeLeft = abs(((TARGET_SOC(:) - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MAX_CELL_CURR));
-            socChgAmt = (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC(:) - xk(xIND.SOC, 1));
-            SOC_Target = xk(xIND.SOC) + socChgAmt;
-            references = [SOC_Target(:)', repmat(ANPOT_Target, 1, NUMCELLS),TARGET_SOC(:)']; 
+            idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MIN_CELL_CURR));
+            SOC_Target = xk(xIND.SOC) + (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC - xk(xIND.SOC, 1));
+            
+            references = [SOC_Target(:)', repmat(ANPOT_Target, 1, NUMCELLS),... % ]; %
+                            repmat(3, 1, NUMCELLS)]; 
 
             % Using the equivalent current from balance commands and psu.
             % measured current here instead does not work while predicting
@@ -661,36 +627,56 @@ try
             xk = CorrectedState';
             xk = xk(:);
             
-%             % Disable Balancing if SOC is past range 
-%             % or if SOC deviation if less than threshold. 
-%             % MPC won't optimize for Balance currents past this range
-%             if ONLY_CHRG_FLAG == false
-%                 if (max(testData.cellSOC(end, :) > MAX_BAL_SOC) ...
-%                         || min(testData.cellSOC(end, :) < MIN_BAL_SOC)) ...
-%                         || abs( max(xk(xIND.SOC)) - min(xk(xIND.SOC)) ) < ALLOWABLE_SOCDEV
-%                     
-%                     BalanceCellsFlag = false;
-%                     predMdl.Curr.balWeight = 0;
-%                     p2 = predMdl;
-%                     options.Parameters = {p1, p2, p3, p4};
-%                     u = [zeros(NUMCELLS, 1); u(end)];
-%                     mpcObj.MV(NUMCELLS + 1).Min = min(MIN_CELL_CURR);
-%                     
+            % Disable Balancing if SOC is past range 
+            % or if SOC deviation if less than threshold. 
+            % MPC won't optimize for Balance currents past this range
+            if ONLY_CHRG_FLAG == false
+                if (max(testData.cellSOC(end, :) > MAX_BAL_SOC) ...
+                        || min(testData.cellSOC(end, :) < MIN_BAL_SOC)) ...
+                        || abs( max(xk(xIND.SOC)) - min(xk(xIND.SOC)) ) <= ALLOWABLE_SOCDEV
+                    
+                    BalanceCellsFlag = false;
+                    predMdl.Curr.balWeight = 0;
+                    p2 = predMdl;
+                    options.Parameters = {p1, p2, p3, p4};
+                    u = [zeros(NUMCELLS, 1); u(end)];
+                    mpcObj.MV(NUMCELLS + 1).Min = DfltMinPSUVal;
+                    
+                    % Allow Anode potential to get closer to zero since it is not
+                    % balancing (spiking)
+                    for i = 1:NUMCELLS
+                        mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Min =  0.001;
+                    end
+                    
 %                 elseif max(testData.cellSOC(end, :) < MAX_BAL_SOC) ...
 %                         && min(testData.cellSOC(end, :) > MIN_BAL_SOC) ...
 %                         && (max(abs(predMdl.SOC.devMat * xk(xIND.SOC))) >= ALLOWABLE_SOCDEV)
 %                     
+%                     % If any of the cells are close to max voltage,
+%                     % manually reduce the PSU current limit.
+%                     % This is really not ideal, the mpc should be able to
+%                     % figure this out itself
+%                     if max(testData.cellVolt(end, :) > 3.85)&& max(testData.cellSOC(end, :) > 0.65) % Adding this
+%                         mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_HIVOLTBAL; % + max(testData.cellSOC(end, :));
+%                         u(end) = 0;
+%                     else
+%                         mpcObj.MV(NUMCELLS + 1).Min = DfltMinPSUVal;
+%                     end
 %                     BalanceCellsFlag = true;
 %                     predMdl.Curr.balWeight = 1;
 %                     p2 = predMdl;
 %                     options.Parameters = {p1, p2, p3, p4};
-%                     mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(testData.cellSOC(end, :));
-%                 end
-%                 
+%                     % Allow Anode potential to reach zero since it is not
+%                     % balancing (spiking)
+%                     for i = 1:NUMCELLS
+%                         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Min =  ANPOT_Target;
+%                     end
+                end
+                
 %                 if BalanceCellsFlag == true
 %                     mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_BAL + max(testData.cellSOC(end, :));
 %                 end
-%             end
+            end
             
             % Run the MPC controller
             if USE_PARALLEL == true
@@ -716,42 +702,34 @@ try
                 
                 mdl_X = P06_BattStateFcn_HW(xk, u, p1, p2, p3, p4);
                 mdl_Y = P06_OutputFcn_HW(mdl_X, u, p1, p2, p3, p4)';
-
+                
                 optCurr = u; % u<0 == Charging, u>0 == discharging
                 cost = mpcinfo.Cost;
                 iters = mpcinfo.Iterations;
 
                 % Balancer and PSU Current
-                balCurr = optCurr(1:NUMCELLS);
+                optBalCurr = optCurr(1:NUMCELLS);
                 optPSUCurr = optCurr(end);
+                
                 
                 % Set power supply current
                 curr = abs(optPSUCurr); % PSU Current. Using "curr" since script in nect line uses "curr"
-                
-                if optPSUCurr < -0.01
-                    script_charge;
-                elseif optPSUCurr > 0.01
-                    script_discharge;
-                else
-                    script_idle;
-                end
+                script_charge;
                                
                 % Disable Balancing if SOC is past range. MPC won't optimize
                 % for Balance currents past this range
-                if BalanceCellsFlag == true
-%                     bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = balCurr;
-                    
+                if BalanceCellsFlag == true                    
                     % send balance charges to balancer
-                    bal.SetBalanceCharges(balBoard_num, balCurr*sampleTime); % Send charges in As
+                    bal.SetBalanceCharges(balBoard_num, optBalCurr*sampleTime); % Send charges in As
                 else
-                    bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = zeros(size(balCurr));
+                    bal.Currents(balBoard_num +1, logical(bal.cellPresent(1, :))) = zeros(size(optBalCurr));
                 end
                 
                 tElapsed_plant = toc(testTimer);
                 
                 % Combine the PSU and BalCurr based on the balancer transformation
                 % matrix
-                combCurr = combineCurrents(optPSUCurr, balCurr, predMdl);
+                combCurr = combineCurrents(optPSUCurr, optBalCurr, predMdl);
                 
                 wait(0.05);
                 
@@ -765,6 +743,9 @@ try
         if (( toc(testTimer)- prevStateTime ) >= readPeriod ) && ~isempty(mpcinfo)
             prevStateTime = toc(testTimer); 
 
+            % Allows the test data related to the MPC to be displayed right
+            % after the battery information regardless of what the
+            % verbosity is.
             if verbosity == 1
                 printNow = true;
             elseif verbosity == 0
@@ -785,18 +766,24 @@ try
                 ANPOT = qinterp2(-predMdl.ANPOT.Curr, predMdl.ANPOT.SOC, predMdl.ANPOT.ANPOT,...
                    interpCurr , testData.cellSOC(end, :)' );
 
+%             % Show capability of models to measurement
+%             prevStates = [testData.cellSOC(end-1, :)'; mdl_X([xIND.V1, xIND.V2]);...
+%                 testData.temp(end-1, 2:end)'; ANPOT];
+%             mdl_X = P06_BattStateFcn_HW(prevStates, testData.cellCurr(end, :)', readPeriod, p2, p3, p4);
+%             mdl_Y = P06_OutputFcn_HW(mdl_X, testData.cellCurr(end, :)', readPeriod, p2, p3, p4)';
+               
            testData.AnodePot(end+1, :)      = ANPOT(:)';
            testData.SOC_Targets(end+1, :)   = SOC_Target';
            testData.predOutput(end+1, :)    = mdl_Y;
-           testData.predStates(end+1, :)    = xk(:)';
+           testData.predStates(end+1, :)    = mdl_X; % xk(:)';
            testData.balCurr(end+1, :)       = balCurr';
            testData.optPSUCurr(end+1, :)    = optPSUCurr;
            testData.Cost(end+1, :)          = cost;
            testData.Iters(end+1, :)         = iters;
            testData.ExitFlag(end+1, :)      = mpcinfo.ExitFlag;
            sTime = [sTime; actual_STime];
-           testData.sTime(end+1, :) = actual_STime;
-           
+           testData.sTime(end+1, :)         = actual_STime;
+            
            if printNow == true
                MPCStr = ""; ANPOTStr = ""; balStr = "";
                MPCStr = MPCStr + sprintf("ExitFlag = %d\tCost = %e\t\tIters = %d\n", mpcinfo.ExitFlag, cost, iters);
@@ -815,8 +802,13 @@ try
                fprintf(balStr + newline);
                fprintf(MPCStr + newline);
                
-               timingStr = sprintf("Prev Opt Time: %.3f Secs", testData.sTime(end, 1));
-               fprintf(timingStr + newline);
+               timingStr = sprintf("Prev Opt Time: %.3f Secs", sTime(end, 1));
+               if BalanceCellsFlag == true
+                   balStatusStr = "Balancing";
+               else
+                   balStatusStr = "NOT Balancing";
+               end
+               fprintf(timingStr + "\t\t Bal Status: " + balStatusStr + newline);
                
                fprintf("Predicted Voltage =\t"); disp(testData.predOutput(end, yIND.Volt))
                fprintf("Predicted SOC =\t"); disp(testData.predStates(end, xIND.SOC))
@@ -849,25 +841,24 @@ try
     script_resetDevices;
     disp("Test Completed After: " + tElapsed_plant + " seconds.")
     
-    %% SAVE DATA
     % Save Battery Parameters
     save(dataLocation + "007BatteryParam.mat", 'batteryParam');
-        
-    if ~strcmpi(testStatus, "stop")
+    
+    if strcmpi(testStatus, "stop")
         % Save Test Data
         testSettings.saveDir = testSettings.saveDir + metadata.startDate...
-            +"_"+ metadata.startTime + "_"+extractAfter(fName, "_")+"_Successful\";
-    elseif strcmpi(testStatus, "stop")
-        % Save Test Data
-        testSettings.saveDir = testSettings.saveDir + metadata.startDate...
-            +"_"+ metadata.startTime + "_"+extractAfter(fName, "_")+"_ErroredOut_" ...
+            +"_"+ metadata.startTime + "_HCFC_Exp2_ErroredOut_" ...
             + strjoin(string(errorCode(errorCode ~= ErrorCode.NO_ERROR)), "_")...
             +"\";
         testData.errCode = errorCode;
+    elseif ~strcmpi(testStatus, "stop")
+        % Save Test Data
+        testSettings.saveDir = testSettings.saveDir + metadata.startDate...
+            +"_"+ metadata.startTime + "_HCFC_Exp2_Successful\";
     else 
         % Save Test Data
         testSettings.saveDir = testSettings.saveDir + metadata.startDate...
-            +"_"+ metadata.startTime + "_"+extractAfter(fName, "_")+"_Failed\";
+            +"_"+ metadata.startTime + "_HCFC_Exp2_Failed\";
         testData.errCode = errorCode;
     end
     % Save Data
@@ -897,6 +888,7 @@ cellData    = p3;   % Constant Cell Data
 indices     = p4;   % Indices for the STATES (x)and OUTPUTS (y) presented as a struts
 
 NUMCELLS = cellData.NUMCELLS;
+allowableSOCDev = cellData.ALLOWABLE_SOCDEV;
 % cap = cellData.CAP; % Capacity of all cells
 
 xIND = indices.x;
@@ -940,7 +932,8 @@ socTracking = ref(:, 1:NUMCELLS) - chrgSOC;
 
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%  SOC Deviation  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
-socDev = mean(chrgSOC, 2) - ref(:, 9:12); % mean(chrgSOC, 2) - chrgSOC;
+socDev = devMat * chrgSOC';
+% socDev = mean(chrgSOC, 2) - chrgSOC;
 
 % %%%%%%%%%%%%%%%%%%  Charge time calculation  %%%%%%%%%%%%%%%%%%%%%%%%
 %{
@@ -985,7 +978,7 @@ socDev = mean(chrgSOC, 2) - ref(:, 9:12); % mean(chrgSOC, 2) - chrgSOC;
 A = 100; % SOC Tracking
 % If SOC is past the set balance SOC range, then don't let the SOC dev
 % affect the cost function.
-A_dev = 100 * predMdl.Curr.balWeight; 
+A_dev = 200 * predMdl.Curr.balWeight; 
 
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -998,7 +991,7 @@ scale_soc = 1; % 0.075; % 0.0025;
 % Cost Function
 % ---------------------------------------------------------------------
 fastChargingCost = sum( ( (A/scale_soc) .* (socTracking) ) .^2);
-socBalancingCost = sum( ( (A_dev/scale_soc) .* (0 - socDev) ) .^2);
+socBalancingCost = sum( ( (A_dev/scale_soc) .* (allowableSOCDev - socDev) ) .^2);
 J = sum([...
     fastChargingCost,  ... % avgSOC) ) .^2),  ... %
     socBalancingCost,  ...
@@ -1110,13 +1103,10 @@ yIND = indices.y;
 
 p = data.PredictionHorizon;
 
-
 if predMdl.Curr.balWeight == 1
-%     MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.1;
-    MIN_DCHRG_VOLT = cellData.MIN_DCHRG_VOLT + 0.1;
+    MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.2;
 else
-%     MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.02;
-    MIN_DCHRG_VOLT = cellData.MIN_DCHRG_VOLT + 0.02;
+    MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.02;
 end
 
 horizonInd = 2:p+1;
@@ -1124,11 +1114,7 @@ Y = zeros(p, indices.ny);
 for i = 1:p+1
     Y(i,:) = P06_OutputFcn_HW(X(i,:)',U(i,:)',p1, p2, p3, p4)';
 end
-% if min(U(2,:)' < 0) == 1
-%     cineq0 = (Y(horizonInd, yIND.Volt) - MAX_CHRG_VOLT')';
-% else
-    cineq0 = -(Y(horizonInd, yIND.Volt) - MIN_DCHRG_VOLT')';
-% end
+cineq0 = (Y(horizonInd, yIND.Volt) - MAX_CHRG_VOLT')';
 cineq = cineq0(:);
 
 end
@@ -1252,8 +1238,8 @@ for ix = 1:length(horizonInd)
     Jx(:, xIND.Ts, ix-1) = dff;
     %}
     
-    Jx(1+(ix-1)*NUMCELLS:ix*NUMCELLS, xIND.V1, ix) = -1.00 * eye(NUMCELLS) * -1;
-    Jx(1+(ix-1)*NUMCELLS:ix*NUMCELLS, xIND.V2, ix) = -1.00 * eye(NUMCELLS) * -1;
+    Jx(1+(ix-1)*NUMCELLS:ix*NUMCELLS, xIND.V1, ix) = -1.00 * eye(NUMCELLS);
+    Jx(1+(ix-1)*NUMCELLS:ix*NUMCELLS, xIND.V2, ix) = -1.00 * eye(NUMCELLS);
     Jx(1+(ix-1)*NUMCELLS:ix*NUMCELLS, xIND.Curr, ix) = C(1:NUMCELLS, xIND.Curr);% -0.01 * eye(NUMCELLS);
 end
 

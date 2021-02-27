@@ -84,14 +84,8 @@ USE_PARALLEL = true;
 testSettings.USE_PARALLEL = USE_PARALLEL;
 
 
-try
-    MIN_BAL_CURR = -2; %[-0.5, -0.5, -0.5, -0.5]';
-    MAX_BAL_CURR = 2; % [0.5, 0.5, 0.5, 0.5]';
-
-catch ME
-    script_handleException;
-end   
-
+MIN_BAL_CURR = -2; %[-0.5, -0.5, -0.5, -0.5]';
+MAX_BAL_CURR = 2; % [0.5, 0.5, 0.5, 0.5]';
 MAX_CELL_CURR = batteryParam.maxCurr(battID); % /numCells_Par; % This should be for each single/parallel cells connected in series
 MIN_CELL_CURR = batteryParam.minCurr(battID); % /numCells_Par;
 MAX_CHRG_VOLT = batteryParam.chargedVolt(battID)/numCells_Ser;
@@ -569,6 +563,9 @@ poolState = 'finished';
 % ONLY_CHRG_FLAG = true;
 ONLY_CHRG_FLAG = false;
 
+BAL_ONCE = true;
+% BAL_ONCE = false;
+
 try     
 %% Setup
     y_Ts = thermoData(2:end);
@@ -594,9 +591,10 @@ try
         p2 = predMdl;
         options.Parameters = {p1, p2, p3, p4};
     end
+    
     sTime = [];readTime = [];
     tElapsed_plant = 0; prevStateTime = 0; prevMPCTime = 0;
-    SOC_Targets = [];
+    SOC_Targets = []; debugData = struct("xk", [], "u", []); ExitFlag = 0;
     DfltMinPSUVal = mpcObj.MV(NUMCELLS + 1).Min;
     mdl_X = P06_BattStateFcn_HW(xk, u, p1, p2, p3, p4);
 %% Loop  
@@ -606,7 +604,7 @@ try
             actual_STime = tElapsed_MPC - prevMPCTime;
             prevMPCTime = tElapsed_MPC;
 
-            idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MAX_CELL_CURR));
+            idealTimeLeft = abs(((TARGET_SOC - xk(xIND.SOC, 1)) .* CAP(:) * 3600)./ abs(MIN_CELL_CURR));
             SOC_Target = xk(xIND.SOC) + (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC - xk(xIND.SOC, 1));
             
             references = [SOC_Target(:)', repmat(ANPOT_Target, 1, NUMCELLS),... % ]; %
@@ -644,6 +642,7 @@ try
 
             xk = CorrectedState';
             xk = xk(:);
+            debugData.xk(end+1, :) = xk(:)';
             
             % Disable Balancing if SOC is past range 
             % or if SOC deviation if less than threshold. 
@@ -670,25 +669,25 @@ try
                         && min(testData.cellSOC(end, :) > MIN_BAL_SOC) ...
                         && (max(abs(predMdl.SOC.devMat * xk(xIND.SOC))) >= ALLOWABLE_SOCDEV)
                     
-                    % If any of the cells are close to max voltage,
-                    % manually reduce the PSU current limit.
-                    % This is really not ideal, the mpc should be able to
-                    % figure this out itself
-                    if max(testData.cellVolt(end, :) > 3.85)
-                        mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_HIVOLTBAL; % + max(testData.cellSOC(end, :));
-                        u(end) = 0;
-                    else
-                        mpcObj.MV(NUMCELLS + 1).Min = DfltMinPSUVal;
-                    end
-                    BalanceCellsFlag = true;
-                    predMdl.Curr.balWeight = 1;
-                    p2 = predMdl;
-                    options.Parameters = {p1, p2, p3, p4};
-                    % Allow Anode potential to reach zero since it is not
-                    % balancing (spiking)
-                    for i = 1:NUMCELLS
-                        mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Min =  ANPOT_Target;
-                    end
+%                     % If any of the cells are close to max voltage,
+%                     % manually reduce the PSU current limit.
+%                     % This is really not ideal, the mpc should be able to
+%                     % figure this out itself
+%                     if max(testData.cellVolt(end, :) > 3.85) && max(testData.cellSOC(end, :) > MAX_BAL_SOC)
+%                         mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_HIVOLTBAL; % + max(testData.cellSOC(end, :));
+%                         u(end) = 0;
+%                     else
+%                         mpcObj.MV(NUMCELLS + 1).Min = DfltMinPSUVal;
+%                     end
+%                     BalanceCellsFlag = true;
+%                     predMdl.Curr.balWeight = 1;
+%                     p2 = predMdl;
+%                     options.Parameters = {p1, p2, p3, p4};
+%                     % Allow Anode potential to reach zero since it is not
+%                     % balancing (spiking)
+%                     for i = 1:NUMCELLS
+%                         mpcObj.OV(i + (yANPOT-1) * NUMCELLS).Min =  ANPOT_Target;
+%                     end
                 end
                 
 %                 if BalanceCellsFlag == true
@@ -798,7 +797,7 @@ try
            testData.optPSUCurr(end+1, :)    = optPSUCurr;
            testData.Cost(end+1, :)          = cost;
            testData.Iters(end+1, :)         = iters;
-           testData.ExitFlag(end+1, :)      = mpcinfo.ExitFlag;
+           testData.ExitFlag(end+1, :)      = mpcinfo.ExitFlag; ExitFlag = mpcinfo.ExitFlag;
            sTime = [sTime; actual_STime];
            testData.sTime(end+1, :)         = actual_STime;
             
@@ -857,6 +856,8 @@ try
     end
     
     script_resetDevices;
+    
+    %% Save Test Data
     disp("Test Completed After: " + tElapsed_plant + " seconds.")
     
     % Save Battery Parameters
