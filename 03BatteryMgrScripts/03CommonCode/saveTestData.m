@@ -1,6 +1,5 @@
-function [status, msg] = saveBattData(testData, metadata, testSettings, testName)
-%SAVEBATTDATA Summary of this function goes here
-%   Detailed explanation goes here
+function [status, msg] = saveTestData(testData, metadata, testSettings, testName)
+%SAVETESTDATA Saves Data from a recent test as well as metadata
 
 
 metadata.endDate = string(datetime('now', 'Format','yyMMdd'));

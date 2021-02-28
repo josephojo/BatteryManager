@@ -180,7 +180,7 @@ try
     % Get Current File name
     [~, filename, ~] = fileparts(mfilename('fullpath'));
     % Save data
-    saveBattData(testData, metadata, testSettings, filename);
+    saveTestData(testData, metadata, testSettings, filename);
       
     
 catch MEX
