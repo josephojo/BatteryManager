@@ -2561,6 +2561,86 @@ classdef DC2100A < handle
         end
         
         
+        function Passive_Balance_Write(obj, board_num, bal_actions)
+            %Passive_Balance_Write Sends num of connected cells to MCU for OVUV prevention.
+            %   Writes the cells that have been selected by
+            %   the user as connected to the MCU so the cells don't trigger 
+            %   OV or UV errors
+            %    Inputs:
+            %       obj                 : DC2100A object. Can otherwise 
+            %                               add it behind function i.e. 
+            %                               obj.Cell_Present_Write(board_num)
+            %       board_num           : board # from 0 to MAX Num of boards - 1 (9)
+            %       bal_actions         : An bitmap of values to represent
+            %                             if a passive balancer for a cell 
+            %                             is active or inactive. 
+            %                               1 = ON, 0 = OFF, cell 1 is in index 1 
+            %                               (first cell in first index)
+            
+            success = CheckBoardValidity(obj, board_num);
+            if success == false, return; end
+
+            num_actions = length(bal_actions);
+            if num_actions == DC2100A.MAX_CELLS
+                % If the cells specified for balancing are connected
+                if isequal(bitor(bal_actions,  obj.cellPresent(board_num +1, :)),...
+                        obj.cellPresent(board_num +1, :))
+                    actions2Send = bal_actions;
+                else
+                    obj.eventLog.Add(ErrorCode.OUT_OF_BOUNDS,...
+                    "Board: " + num2str(board_num),...
+                    ". You are trying to balance cells that are not connected.");
+                end
+            elseif num_actions == obj.numCells(board_num +1)
+                actions2Send = zeros(DC2100A.MAX_CELLS, 1);
+                actions2Send(logical(obj.cellPresent(board_num +1, :)), 1)...
+                    = charges;
+                
+            elseif num_actions < DC2100A.MIN_CELLS || num_actions > DC2100A.MAX_CELLS
+                obj.eventLog.Add(ErrorCode.OUT_OF_BOUNDS,...
+                    "Board: " + num2str(board_num),...
+                    ". The number of current values being sent to the balancer" + ...
+                    + " is outside the allowable range of 4 - 12.", ...
+                    num2str(num_actions));
+            end
+            
+            dataString = DC2100A.USB_PARSER_PASSIVE_BALANCE_COMMAND + "W";
+            
+            dataString = dataString + dec2hex(board_num, 2);
+                        
+            passive_balance_bitmap = 0;
+
+            for cell_num = DC2100A.MAX_CELLS -1 : -1 : 0
+                passive_balance_bitmap = bitshift(passive_balance_bitmap, 1); % Positive bitshift = Shift Left
+                if actions2Send(cell_num +1) == 1
+                    passive_balance_bitmap = passive_balance_bitmap + 1;
+                end
+            end
+            
+            dataString = dataString + dec2hex(passive_balance_bitmap, 4);
+            
+            obj.buf_out.add(dataString);
+            
+        end
+        
+        
+        function Passive_Balance_Stop(obj, board_num)
+            %Passive_Balance_Stop Stops all passive balancers
+            %   If a board_num is given, only the balancers on that board
+            %   will be stopped, otherwise all balancers on all boards will
+            %   be stopped.
+            bal_actions = zeros(1, DC2100A.MAX_CELLS);
+            
+            if nargin == 1
+               for board_num = 0 : obj.numBoards
+                   Passive_Balance_Write(obj, board_num, bal_actions);
+               end
+            else
+               Passive_Balance_Write(obj, board_num, bal_actions);
+            end
+        end
+        
+        
         function validBoard = CheckBoardValidity(obj, board_num)
             %CheckBoardValidity Checks to see if selected board is valid.
             %
@@ -2638,7 +2718,6 @@ classdef DC2100A < handle
             end
         end
                 
-        
         function Timed_Balance_Write(obj, board_num, bal_actions, balance_timer)
             %Timed_Balance_Write Write the command to perform a timed
             %balance on one or more cells.
