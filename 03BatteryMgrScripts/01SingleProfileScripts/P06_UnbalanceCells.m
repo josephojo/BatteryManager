@@ -152,9 +152,9 @@ indices.x = xIND;
 indices.y = yIND;
 
 
-TARGET_SOC = [0.15, 0.20, 0.12, 0.10]; %[0.6, 0.6, 0.6, 0.6]; % 
+TARGET_SOC = [0.10, 0.15, 0.20, 0.12]; %[0.6, 0.6, 0.6, 0.6]; % 
 testSettings.TARGET_SOC = TARGET_SOC;
-ANPOT_Target = 0;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
+ANPOT_Target = 0.01;  % Anode Potential has to be greater than 0 to guarantee no lithium deposition
 
 % Balance Efficiencies
 chrgEff = 0.774; 
@@ -871,8 +871,8 @@ try
         testData.errCode = errorCode;
     end
     % Save Data
-    [saveStatus, saveMsg] = saveBattData(testData, metadata, testSettings);
-    eventLog.saveLogs(char(extractBefore(...
+    [saveStatus, saveMsg] = saveTestData(testData, metadata, testSettings);
+    eventLog.SaveLogs(char(extractBefore(...
         testSettings.saveDir,...
         strlength(testSettings.saveDir)...
                                             )));
@@ -1113,7 +1113,7 @@ p = data.PredictionHorizon;
 
 if predMdl.Curr.balWeight == 1
 %     MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.1;
-    MIN_DCHRG_VOLT = cellData.MIN_DCHRG_VOLT + 0.1;
+    MIN_DCHRG_VOLT = cellData.MIN_DCHRG_VOLT + 0.2;
 else
 %     MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.02;
     MIN_DCHRG_VOLT = cellData.MIN_DCHRG_VOLT + 0.02;

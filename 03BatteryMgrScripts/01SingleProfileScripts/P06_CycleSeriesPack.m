@@ -59,7 +59,7 @@ save(dataLocation + "001Cycle3Times_"+dateStr, "battTS_wait_1B", '-append');
 % Get Current File name
 [~, filename, ~] = fileparts(mfilename('fullpath'));
 % Save data
-saveBattData(battTS, metadata, testSettings, cells, filename);
+saveTestData(battTS, metadata, testSettings, cells, filename);
 
 metadata.endDate = string(datetime('now', 'Format','yyMMdd'));
 metadata.endTime = string(datetime('now', 'Format','HHmm'));
