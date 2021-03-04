@@ -186,6 +186,8 @@ else
     elseif strcmpi(cellConfig, "series") || strcmpi(cellConfig, "SerPar")
         testSettings.voltMeasDev = "balancer";
         testSettings.currMeasDev = "balancer";
+        testSettings.initialBalVolt = 4.0; % This will be used for passively balancing series pack
+        testSettings.allowable_VoltDev = 0.05; % voltage deviation before for balancing is allowed to stop
     end
 end
 

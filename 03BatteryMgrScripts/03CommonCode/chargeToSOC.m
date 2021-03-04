@@ -172,11 +172,16 @@ try
                     script_idle;
                     break;
                 end
+                
+                % Check if cells require balancing and activate balancers
+                script_passiveBalancer;
+                
             end
             %% Triggers (GPIO from LabJack)
             script_triggerDigitalPins;
 
         end
+        
         
         %% CV Mode
         % While the battery voltage is less than the limit (our 100% SOC) (CC mode)
@@ -220,6 +225,10 @@ try
                         script_idle;
                         break;
                     end
+                    
+                    % Check if cells require balancing and activate balancers
+                    script_passiveBalancer;
+                    
                 end
                 %% Triggers (GPIO from LabJack)
                 script_triggerDigitalPins;
