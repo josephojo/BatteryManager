@@ -1,5 +1,5 @@
-function testData = chargeToFull(chargeCurr, varargin)
+function [testData, metadata, testSettings] = chargeToFull(chargeCurr, varargin)
 %chargeToFull Charges to full using CC-CV based on the charge current specified
 
-testData = chargeToSOC(1, chargeCurr, varargin);
+[testData, metadata, testSettings] = chargeToSOC(1, chargeCurr, varargin);
 end

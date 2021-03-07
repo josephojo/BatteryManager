@@ -1,4 +1,4 @@
-function testData = dischargeToTime(targTime, dischargeCurr, varargin)
+function [testData, metadata, testSettings] = dischargeToTime(targTime, dischargeCurr, varargin)
 %dischargeTo Discharges to the specified SOC based on the previous SOC
 %
 %   Inputs: 
@@ -23,6 +23,12 @@ function testData = dischargeToTime(targTime, dischargeCurr, varargin)
 %			randQ        	= [],     		: Pollable DataQueue for miscellaneous data (e.g confirmations etc) 
 %                                               transfer between 2 parallel-run programs such as the function and GUI
 %			testSettings  	= []);    		: Settings for the test such as cell configuration, sample time, data to capture etc
+%
+%   Outputs:
+%       testData            : Struct of Test Data
+%       metadata            : Test MetaData such as starttime, Tested Batt etc
+%       testSettings        : Device, data measurement, and other settings
+%                               to allow the functioning of the test
 
 
 %% Setup Code

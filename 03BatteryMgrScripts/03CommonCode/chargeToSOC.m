@@ -1,4 +1,4 @@
-function testData = chargeToSOC(targSOC, chargeCurr, varargin)
+function [testData, metadata, testSettings] = chargeToSOC(targSOC, chargeCurr, varargin)
 %chargeToSOC Charges to the specified SOC based on the charge current
 %specified
 %
@@ -29,7 +29,12 @@ function testData = chargeToSOC(targSOC, chargeCurr, varargin)
 %			randQ        	= [],     		: Pollable DataQueue for miscellaneous data (e.g confirmations etc) 
 %                                               transfer between 2 parallel-run programs such as the function and GUI
 %			testSettings  	= [];    		: Settings for the test such as cell configuration, sample time, data to capture etc
-
+%
+%   Outputs:
+%       testData            : Struct of Test Data
+%       metadata            : Test MetaData such as starttime, Tested Batt etc
+%       testSettings        : Device, data measurement, and other settings
+%                               to allow the functioning of the test
 
 %% Setup Code
 
@@ -147,7 +152,7 @@ try
 
     script_queryData; % Run Script to query data from devices
     script_failSafes; %Run FailSafe Checks
-    if errorCode == 1 || strcmpi(testStatus, "stop")
+    if strcmpi(testStatus, "stop")
         script_idle;
         script_resetDevices;
         return;
@@ -208,7 +213,7 @@ try
         batteryParam.soc(battID) = 1; % 100% Charged
     else
         % While the current SOC is less than the specified soc
-        while round(testData.packSOC(end, :), 1) < targSOC
+        while round(testData.packSOC(end, :), 3) < targSOC % round(max(testData.cellSOC(end, :)), 3) < targSOC % 
             %% CCCV, Measurements and FailSafes
             if testData.packVolt(end, :) < highVoltLimit ...
                     || abs(testData.packCurr(end, :)) > abs(cvMinCurr)
@@ -221,7 +226,8 @@ try
                     script_failSafes; %Run FailSafe Checks
                     script_checkGUICmd; % Check to see if there are any commands from GUI
                     % if limits are reached, break loop
-                    if errorCode == 1 || strcmpi(testStatus, "stop")
+                    if strcmpi(testStatus, "stop")
+                        metadata.testStatus = testStatus;
                         script_idle;
                         break;
                     end
