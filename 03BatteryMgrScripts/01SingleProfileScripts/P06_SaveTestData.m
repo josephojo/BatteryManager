@@ -8,7 +8,7 @@
             + strjoin(string(errorCode(errorCode ~= ErrorCode.NO_ERROR)), "_")...
             +"\";
         testData.errCode = errorCode;
-    elseif ~strcmpi(testStatus, "stop")
+    elseif strcmpi(testStatus, "running")
         % Save Test Data
         testSettings.saveDir = testSettings.saveDir + metadata.startDate...
             +"_"+ metadata.startTime + "_" + ExpName +"_Successful\";

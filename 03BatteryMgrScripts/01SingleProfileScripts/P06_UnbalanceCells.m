@@ -36,16 +36,18 @@ try
     if ~exist('testSettings', 'var') || isempty(testSettings)
         codeFilePath = mfilename('fullpath');
         % Seperates the path directory and the filename
-        [path, fName, ~] = fileparts(codeFilePath);
+        [codePath, fName, ~] = fileparts(codeFilePath);
         
-        str = extractBetween(path,"",...
-            "00BattManager","Boundaries","inclusive");
-        testSettings.saveDir = str + "\01ProjectData\" + extractBefore(fName, 4) + "\";
+%         str = extractBetween(path,"",...
+%             "00BattManager","Boundaries","inclusive");
+        str = extractBefore(codePath, "03BatteryMgrScripts");
+
+        testSettings.saveDir = str + "00ProjectData\" + extractBefore(fName, 4) + "\";
         
         testSettings.cellConfig = "SerPar";
         testSettings.currMeasDev = "balancer";
         
-        testSettings.saveName   = "00SP_HCFC_" + battID;
+        testSettings.saveName   = "00SP_UnBal_" + battID;
         testSettings.purpose    = "Test for the series stack health conscious charging algorithm";
         testSettings.tempChnls  = [9, 10, 11, 12, 13];
         testSettings.trigPins = []; % Find in every pin that should be triggered

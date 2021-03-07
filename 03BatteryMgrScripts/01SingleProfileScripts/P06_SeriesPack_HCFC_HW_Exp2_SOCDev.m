@@ -35,9 +35,10 @@ try
         % Seperates the path directory and the filename
         [codePath, codeFileName, ~] = fileparts(codeFilePath);
         
-        str = extractBetween(codePath,"",...
-            "00BattManager","Boundaries","inclusive");
-        testSettings.saveDir = str + "\01ProjectData\" + extractBefore(codeFileName, 4) + "\";
+%         str = extractBetween(codePath,"",...
+%             "00BattManager","Boundaries","inclusive");
+        str = extractBefore(codePath, "03BatteryMgrScripts");
+        testSettings.saveDir = str + "00ProjectData\" + extractBefore(codeFileName, 4) + "\";
         
         testSettings.cellConfig = "SerPar";
         testSettings.currMeasDev = "balancer";

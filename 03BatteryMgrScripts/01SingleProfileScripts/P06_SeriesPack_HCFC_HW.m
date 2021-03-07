@@ -35,9 +35,10 @@ try
         % Seperates the path directory and the filename
         [codePath, codeFileName, ~] = fileparts(codeFilePath);
         
-        str = extractBetween(codePath,"",...
-            "00BattManager","Boundaries","inclusive");
-        testSettings.saveDir = str + "\01ProjectData\" + extractBefore(codeFileName, 4) + "\";
+%         str = extractBetween(codePath,"",...
+%             "00BattManager","Boundaries","inclusive");
+        str = extractBefore(codePath, "03BatteryMgrScripts");
+        testSettings.saveDir = str + "00ProjectData\" + extractBefore(codeFileName, 4) + "\";
         
         testSettings.cellConfig = "SerPar";
         testSettings.currMeasDev = "balancer";
@@ -179,7 +180,7 @@ try
     % Small Rates affect speed a lot
     for i = 1:NUMCELLS
         mpcObj.MV(i).Max =  MAX_BAL_CURR;    mpcObj.MV(i).RateMax =  0.5; % MAX_CELL_CURR;
-        mpcObj.MV(i).Min =  MIN_BAL_CURR;    mpcObj.MV(i).RateMin = -0.5; % -2; % -6
+        mpcObj.MV(i).Min =  0;    mpcObj.MV(i).RateMin = -0.5; % -2; % -6
     end % MIN_BAL_CURR
     
     mpcObj.MV(NUMCELLS + 1).Max =  0;

@@ -1,6 +1,7 @@
 function [status, msg] = saveTestData(testData, metadata, testSettings, testName)
 %SAVETESTDATA Saves Data from a recent test as well as metadata
 
+status = true; msg = [];
 
 metadata.endDate = string(datetime('now', 'Format','yyMMdd'));
 metadata.endTime = string(datetime('now', 'Format','HHmm'));
