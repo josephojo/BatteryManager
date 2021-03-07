@@ -109,7 +109,7 @@ classdef DC2100A < handle
         SYSTEM_TIMER_TICKS_OVERFLOW = bitshift(1, 32, 'uint32');     % the value at which the timestamps overflow
         
         
-        % *** Constants to configure DC2100A GUI
+        % *** Constants to configure DC2100A Program
         filePath = "";
         PRODUCT_STRING = "DC2100A";
         LTC6804_MAX_BOARDS = 16;                 % The maximum number of addresses available to the LTC6804-2
@@ -122,6 +122,7 @@ classdef DC2100A < handle
         ALL_BOARDS = DC2100A.MAX_BOARDS;
         ALL_CELLS = DC2100A.MAX_CELLS;
         ALL_ICS = DC2100A.NUM_LTC3300;
+        PASSIVE_RES = 33; % The ohmage used for the passive balancers
         
         % ########------------------------------------------------
         % DC2100A USB Communication Section
@@ -350,13 +351,14 @@ classdef DC2100A < handle
         LTC3300s = []; % Array of LTC3300 Balancers objects for the max amount of boards
         Timed_Balancers = repmat(struct('bal_action', 0, 'bal_timer', 0),...
             DC2100A.MAX_BOARDS, DC2100A.MAX_CELLS);
-        Passive_Balancers = zeros(1, DC2100A.MAX_BOARDS); % Not implemented yet since not needed.
+        Passive_Balancers = zeros(DC2100A.MAX_BOARDS, DC2100A.MAX_CELLS);
         Min_Balance_Time_Value = 0;
         Min_Balance_Time_Board = 0;
         Max_Balance_Time_Value = 0;
         Max_Balance_Time_Board = 0;
         isBalancing = false;
         isTimedBalancing = false;
+        isPassiveBalancing = false;
         
         % End of Board Data Section
         % ########------------------------------------------------
@@ -684,8 +686,13 @@ classdef DC2100A < handle
 %                             end
 %                         end
                     elseif (obj.USB_Comm_Cycle_Counter == (floor((0.6 * DC2100A.USB_COMM_CYCLE_PERIOD_DEFAULT) / DC2100A.USB_COMM_TIMER_INTERVAL) * DC2100A.USB_COMM_TIMER_INTERVAL))
+                        dataString = "";
                         if obj.isTimedBalancing == true
                             dataString = DC2100A.USB_PARSER_TIMED_BALANCE_COMMAND + "R" + dec2hex(obj.selectedBoard, 2);
+                        end
+                        
+                        if obj.isPassiveBalancing == true
+                            dataString = dataString + DC2100A.USB_PARSER_PASSIVE_BALANCE_COMMAND + "R" + dec2hex(obj.selectedBoard, 2);
                         end
                     elseif obj.USB_Comm_Cycle_Counter == (floor((0.8 * DC2100A.USB_COMM_CYCLE_PERIOD_DEFAULT) / DC2100A.USB_COMM_TIMER_INTERVAL) * DC2100A.USB_COMM_TIMER_INTERVAL)
                         % Note that this is the only polled command that wouldn't be simple to turn into something the FW can stream on its own.
@@ -1734,6 +1741,24 @@ classdef DC2100A < handle
                             
                             % *** If we got here, all of the data conversion was successful!  Copy from temporary to GUI variables
                             obj.Passive_Balancers(board_num +1) = passive_balancer_bitmap;
+                             % If we got here, all data conversion were successful
+                            for cell_num = 0:DC2100A.MAX_CELLS -1
+                                if bitand(passive_balancer_bitmap, 1) == 0
+                                    obj.Passive_Balancers(board_num +1, cell_num +1) = false;
+                                    % Evaluate what the balance currents are
+                                    % for each cell
+                                    obj.Currents(board_num +1, cell_num +1) = 0;
+                                else
+                                    obj.Passive_Balancers(board_num +1, cell_num +1) = true;
+                                    % Evaluate what the balance currents are
+                                    % for each cell
+                                    obj.Currents(board_num +1, cell_num +1)...
+                                            = obj.Voltages(board_num +1, cell_num +1) / DC2100A.PASSIVE_RES;
+                                end
+                                
+                                passive_balancer_bitmap = bitshift(passive_balancer_bitmap, -1);
+                            end
+                            
                         end
                     catch MEX
                         Handle_Exception(obj, MEX);
@@ -2594,7 +2619,7 @@ classdef DC2100A < handle
             elseif num_actions == obj.numCells(board_num +1)
                 actions2Send = zeros(DC2100A.MAX_CELLS, 1);
                 actions2Send(logical(obj.cellPresent(board_num +1, :)), 1)...
-                    = charges;
+                    = bal_actions;
                 
             elseif num_actions < DC2100A.MIN_CELLS || num_actions > DC2100A.MAX_CELLS
                 obj.eventLog.Add(ErrorCode.OUT_OF_BOUNDS,...
@@ -2621,6 +2646,13 @@ classdef DC2100A < handle
             
             obj.buf_out.add(dataString);
             
+            if passive_balance_bitmap > 0
+                obj.isPassiveBalancing = true;
+                obj.isBalancing = true;
+            else
+                obj.isPassiveBalancing = false;
+                obj.isBalancing = false;
+            end
         end
         
         
@@ -2632,12 +2664,14 @@ classdef DC2100A < handle
             bal_actions = zeros(1, DC2100A.MAX_CELLS);
             
             if nargin == 1
-               for board_num = 0 : obj.numBoards
+               for board_num = 0 : obj.numBoards-1
                    Passive_Balance_Write(obj, board_num, bal_actions);
                end
             else
                Passive_Balance_Write(obj, board_num, bal_actions);
             end
+            obj.isPassiveBalancing = false;
+            obj.isBalancing = false;
         end
         
         
@@ -2718,6 +2752,7 @@ classdef DC2100A < handle
             end
         end
                 
+        
         function Timed_Balance_Write(obj, board_num, bal_actions, balance_timer)
             %Timed_Balance_Write Write the command to perform a timed
             %balance on one or more cells.

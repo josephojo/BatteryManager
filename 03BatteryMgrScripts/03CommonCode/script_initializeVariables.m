@@ -186,8 +186,13 @@ else
     elseif strcmpi(cellConfig, "series") || strcmpi(cellConfig, "SerPar")
         testSettings.voltMeasDev = "balancer";
         testSettings.currMeasDev = "balancer";
-        testSettings.initialBalVolt = 4.0; % This will be used for passively balancing series pack
-        testSettings.allowable_VoltDev = 0.05; % voltage deviation before for balancing is allowed to stop
+        
+        if ~isfield(testSettings, 'initialBalVolt')
+            testSettings.initialBalVolt = 3.6; % This will be used for passively balancing series pack
+        end
+        if ~isfield(testSettings, 'allowable_VoltDev')
+            testSettings.allowable_VoltDev = 0.0; % voltage deviation before for balancing is allowed to stop
+        end
     end
 end
 
@@ -328,7 +333,7 @@ else
     end
 end
 
-verbosity = 0; % How often to display (stream to screen). 1 = constantly, 0 = once a while
+% verbosity = 0; % How often to display (stream to screen). 1 = constantly, 0 = once a while
 if ~exist("verbosity", 'var')
     verbosity = 1;
 end

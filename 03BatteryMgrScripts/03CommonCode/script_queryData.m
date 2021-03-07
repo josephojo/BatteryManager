@@ -183,11 +183,16 @@ elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMe
     
     balCurr = bal.Currents(1, logical(bal.cellPresent(1, :)));
     
-    % % Compute Actual Current Through cells
-    logicalInd = balCurr(:) >= 0;
-    balActual_dchrg = T_dchrg * (balCurr(:) .* (logicalInd));
-    balActual_chrg = T_chrg * (balCurr(:) .* (~logicalInd));
-    balActual = balActual_chrg + balActual_dchrg;
+    % Combine currents for both active and passive balancing currents
+    if bal.isPassiveBalancing == true
+        balActual = balCurr;
+    else
+        % % Compute Actual Current Through cells
+        logicalInd = balCurr(:) >= 0;
+        balActual_dchrg = T_dchrg * (balCurr(:) .* (logicalInd));
+        balActual_chrg = T_chrg * (balCurr(:) .* (~logicalInd));
+        balActual = balActual_chrg + balActual_dchrg;
+    end
     testData.cellCurr(end+1, :) = testData.packCurr(end, :) + balActual(:)'; % Actual Current in each cell
 end
 

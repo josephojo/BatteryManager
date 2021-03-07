@@ -191,7 +191,7 @@ elseif strcmpi(caller, "cmdWindow")
     
     %APM POWER SUPPLY
     %##########################################################################
-    psuPort = 'COM4';
+    psuPort = 'COM3';
     if ~exist('psu','var') ...
             || (isvalid(psu) && strcmpi(psu.serialStatus(), "Disconnected"))
         psu = APM_PSU(psuPort);
