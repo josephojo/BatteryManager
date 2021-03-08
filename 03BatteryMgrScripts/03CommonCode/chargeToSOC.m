@@ -3,7 +3,7 @@ function [testData, metadata, testSettings] = chargeToSOC(targSOC, chargeCurr, v
 %specified
 %
 %   Inputs: 
-%       targSOC            : Target time to charge for
+%       targSOC            : Target SOC to charge for
 %      	chargeCurr          : Current (A) to charge
 %       varargin   
 %			trig1         	= false,  		: Accepts a Command to use the trigger activate something such as a heat pad
