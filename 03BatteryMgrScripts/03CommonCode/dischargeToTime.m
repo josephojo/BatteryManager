@@ -31,7 +31,7 @@ function [testData, metadata, testSettings] = dischargeToTime(targTime, discharg
 %                               to allow the functioning of the test
 
 
-%% Setup Code
+%% Parse Input Argument or set Defaults
 param = struct(...
     'trig1',            false,  ... % General to most functions
     'trig1_pin',        4,      ... %           "
@@ -93,6 +93,8 @@ randQ = param.randQ;
 testSettings = param.testSettings;
 eventLog = param.eventLog;
 
+%% Setup Trigger Functions if enabled
+
 if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
         && param.trig1 == true  
     testSettings.trigPins = param.trig1_pin;
@@ -137,6 +139,7 @@ else
     trigAvail = false;
 end
 
+%% Start Routine
 
 try
     % Initializations

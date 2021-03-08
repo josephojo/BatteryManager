@@ -1,18 +1,18 @@
 
-cellID = "AB6";
+battID = "AB6";
 testSettings.tempChnls = [9, 11];
 
 
 ahCount_cRates = [0.4, 0.3];
 
 chrgCurr = 1.2;
-targetSOC = 0.12; % 0.18; % 0.2; % 0.15; % 
 
 %% Count the Charge in the cell
 
-ahCount = AhCounter('cRates', ahCount_cRates, 'cellIDs', cellID, 'waitTime', 900,...
+ahCount = AhCounter('cRates', ahCount_cRates, 'battID', battID, 'waitTime', 900,...
 'testSettings', testSettings);
 
 %% After Counting the cell charge, charge the cell to specified SOC
+targetSOC = 0.12; % 0.18; % 0.2; % 0.15; % 
 
-battTS_Chrg = chargeToSOC(targetSOC, chrgCurr, 'cellIDs', cellID, 'testSettings', testSettings);
+[testData, metadata, testSettings] = chargeToSOC(targetSOC, chrgCurr, 'battID', battID, 'testSettings', testSettings);

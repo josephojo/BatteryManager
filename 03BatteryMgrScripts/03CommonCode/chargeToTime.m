@@ -31,7 +31,7 @@ function [testData, metadata, testSettings] = chargeToTime(targTime, chargeCurr,
 %       testSettings        : Device, data measurement, and other settings
 %                               to allow the functioning of the test
 
-%% Setup Code
+%% Parse Input Argument or set Defaults
 
 param = struct(...
     'trig1',            false,  ... % General to most functions
@@ -94,6 +94,8 @@ randQ = param.randQ;
 testSettings = param.testSettings;
 eventLog = param.eventLog;
 
+%% Setup Trigger Functions if enabled
+
 if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
         && param.trig1 == true  
     testSettings.trigPins = param.trig1_pin;
@@ -139,7 +141,7 @@ else
 end
 
 
-% Initializations
+%% Start Routine
 try
 
     script_initializeVariables; % Run Script to initialize common variables

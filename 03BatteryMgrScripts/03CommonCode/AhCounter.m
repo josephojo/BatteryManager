@@ -1,6 +1,6 @@
-function battTS = AhCounter(varargin)
+function [testData, metadata, testSettings]  = AhCounter(varargin)
 %AhCounter Counts the mount of capacity left in a cell or pack
-% ahCount = AhCounter('cRates', [0.3, 0.2], 'cellIDs', "AB1");
+% ahCount = AhCounter('cRates', [0.25, 0.25], 'battID', "AB1");
 %
 %   Inputs: 
 %       varargin   
@@ -28,12 +28,18 @@ function battTS = AhCounter(varargin)
 %			randQ        	= [],     		: Pollable DataQueue for miscellaneous data (e.g confirmations etc)
 %                                               transfer between 2 parallel-run programs such as the function and GUI
 %			testSettings  	= []);    		: Settings for the test such as cell configuration, sample time, data to capture etc
+%
+%   Outputs:
+%       testData            : Struct of Test Data
+%       metadata            : Test MetaData such as starttime, Tested Batt etc
+%       testSettings        : Device, data measurement, and other settings
+%                               to allow the functioning of the test
 
 
-%% Setup Code
+%% Parse Input Argument or set Defaults
 
 param = struct(...
-    'cRates',           1,      ... % General to most functions
+    'cRates',           0.25,      ... % General to most functions
     'waitTime',         1800,   ... %           "
     ...             %           "
     'battID',           [],     ... %           "
@@ -48,7 +54,8 @@ param = struct(...
     'dataQ',            [],     ... %           "
     'errorQ',           [],     ... %           "
     'randQ',            [],     ... %           "
-    'testSettings',     []);        % -------------------------
+    'testSettings',     [],     ... %           " 
+    'eventLog',         []);        % -------------------------
 
 
 % read the acceptable names
@@ -96,9 +103,9 @@ currFilePath = mfilename('fullpath');
 % Seperates the path directory and the filename
 [path, ~, ~] = fileparts(currFilePath);
 
-newStr = extractBetween(path,"",...
-               "03DataGen","Boundaries","inclusive");
-dataLocation = newStr + "\01CommonDataForBattery\";
+parentDir = extractBefore(path, "03BatteryMgrScripts");
+
+dataLocation = parentDir + "\01CommonDataForBattery\";
     
 %% Begin AhCounter
 try 
@@ -122,15 +129,18 @@ try
     end
     
     % Step 1: Bring the cell  to Full Capacity
-    testData_chrg = chargeToSOC(1, cRate_chrg*cap, 'cellIDs', battID, 'testSettings', testSettings);
+    [testData_chrg, metadata_chrg] = chargeToSOC(1, cRate_chrg*cap, 'battID', battID, 'testSettings', testSettings);
 
     % Step 2: Let the battery rest
-    testData_Wait_Chrg = waitTillTime(waitTime, 'cellIDs', battID, 'testSettings', testSettings);
+    [testData_Wait_Chrg, metadata_Wait_Chrg] = waitTillTime(waitTime, 'battID', battID, 'testSettings', testSettings);
     testData_temp = appendTestDataStruts(testData_chrg, testData_Wait_Chrg);
+    metadata_temp = appendTestDataStruts(metadata_chrg, metadata_Wait_Chrg);
 
     % Step 3: Discharge to empty
-    dischargeToEmpty; % there is an internal variable "battTS" in script
-    testData = appendTestDataStruts(testData_temp, testData);
+    [testData_dchrg, metadata_dchrg, testSettings] = ...
+        dischargeToSOC(0, cRate_chrg*cap, 'battID', battID, 'testSettings', testSettings);
+    testData = appendTestDataStruts(testData_temp, testData_dchrg);
+    metadata = appendTestDataStruts(metadata_temp, metadata_dchrg);
 
     
     % Save data
@@ -145,13 +155,15 @@ try
             batteryParam.cellCap(battID) = cellAhCap;
         end
         
-        fileName = "007_" + battID + "_AhCount.mat";
-        save(dataLocation + fileName, 'testData', 'packAhCap', 'cellAhCap');
-                
-        % Save Battery Parameters
-        save(dataLocation + "007BatteryParam.mat", 'batteryParam');
+        testData.packAhCap = packAhCap;
+        testData.cellAhCap = cellAhCap;
+        testSettings.purpose = "To update capacity count for battery (pack).";
         
-        purpose = "To update capacity count for battery (pack).";
+        % Get Current File name
+        [~, filename, ~] = fileparts(mfilename('fullpath'));
+        % Save data
+        saveTestData(testData, metadata, testSettings, filename);
+        
         updateExpLogs(fileName, purpose, battID, batteryParam);
 
     end

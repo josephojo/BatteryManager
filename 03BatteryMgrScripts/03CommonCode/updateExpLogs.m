@@ -1,12 +1,18 @@
-function updateExpLogs(Filename, Purpose, cellIDs, batteryParam)
+function updateExpLogs(Filename, Purpose, battID, batteryParam)
 % updateExpLogs Update Experiment Logs File
 %%
 currFilePath = mfilename('fullpath');
 % Seperates the path directory and the filename
 [filePath, ~, ~] = fileparts(currFilePath);
 
-saveLocation = extractBetween(filePath,"",...
-    "00BattManager\","Boundaries","inclusive");
+parentDir = extractBefore(filePath, "03BatteryMgrScripts");
+% Go to one above the parent Dir
+s = strsplit(parentDir, "\");
+if strcmpi(s(end), "")
+    saveLocation = strjoin(s(1:end-2), "\");
+else
+    saveLocation = strjoin(s(1:end-1), "\");
+end
 
 %%
 
@@ -15,21 +21,21 @@ TimeCompleted = string(datestr(now,'HHMM'));
 
 T = readtable(saveLocation + "ExperimentLogs.xlsx");
 
-BatteryChem = batteryParam.chemistry(cellIDs(1));
-capacityLeft = batteryParam.capacity(cellIDs);
+BatteryChem = batteryParam.chemistry(battID(1));
+capacityLeft = batteryParam.capacity(battID);
 
-numCells = length(cellIDs);
+numCells = length(battID);
 
-CellIDs = ""; CapacityLeft = "";
+battID = ""; CapacityLeft = "";
 for i = 1:numCells
     if i ~= 1
-        CellIDs = CellIDs + ", ";
+        battID = battID + ", ";
         CapacityLeft = CapacityLeft + ", ";
     end
-    CellIDs = CellIDs + cellIDs(i);
+    battID = battID + battID(i);
     CapacityLeft = CapacityLeft + capacityLeft(i);
 end
-Tnew = table(Purpose,Filename,CellIDs,DateCompleted,TimeCompleted,...
+Tnew = table(Purpose,Filename,battID,DateCompleted,TimeCompleted,...
     BatteryChem, CapacityLeft);
 
 T = [T;Tnew];

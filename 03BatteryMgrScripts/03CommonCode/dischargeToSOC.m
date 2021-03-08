@@ -32,7 +32,7 @@ function [testData, metadata, testSettings] = dischargeToSOC(targSOC, dischargeC
 
 
 
-%% Setup Code
+%% Parse Input Argument or set Defaults
 
 param = struct(...
     'trig1',            false,  ... % General to most functions
@@ -94,6 +94,7 @@ randQ = param.randQ;
 testSettings = param.testSettings;
 eventLog = param.eventLog;
 
+%% Setup Trigger Functions if enabled
 if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
         && param.trig1 == true  
     testSettings.trigPins = param.trig1_pin;
@@ -138,7 +139,7 @@ else
     trigAvail = false;
 end
 
-
+%% Start Routine
 try
     % Initializations    
     script_initializeVariables; % Run Script to initialize common variables

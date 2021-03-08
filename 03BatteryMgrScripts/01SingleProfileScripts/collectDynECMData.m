@@ -11,9 +11,9 @@ try
     waitTime = 1800; % wait time for cool down periods in seconds
     cycleSocTargets = [0.9, 0.1];
     
-    if ~exist('cellIDs', 'var') || isempty(cellIDs)
-        % cellIDs should only be one cell
-        cellIDs = "AB1"; % ID in Cell Part Number (e.g BAT11-FEP-AA1). Defined again in initializeVariables
+    if ~exist('battID', 'var') || isempty(battID)
+        % battID should only be one cell
+        battID = "AB1"; % ID in Cell Part Number (e.g BAT11-FEP-AA1). Defined again in initializeVariables
     end
     
     if ~exist('caller', 'var')
@@ -32,13 +32,13 @@ try
     if ~exist('testSettings', 'var') || isempty(testSettings)
         currFilePath = mfilename('fullpath');
         % Seperates the path directory and the filename
-        [path, ~, ~] = fileparts(currFilePath);
+        [filePath, contents, ~] = fileparts(currFilePath);
         
-        str = extractBetween(path,"",...
-            "03DataGen","Boundaries","inclusive");
-        testSettings.saveDir = str + "\01CommonDataForBattery";
+        str = extractBefore(filePath, "03BatteryMgrScripts");
+
+        testSettings.saveDir = str + "01CommonDataForBattery";
         
-        testSettings.saveName   = "01DYNData_" + cellIDs;
+        testSettings.saveName   = "01DYNData_" + battID;
         testSettings.purpose    = "To use in identifying the RC parameters for an ECM model";
         testSettings.tempChnls  = [9, 10, 11];
         testSettings.trigPins = []; % Fin in every pin that should be triggered
@@ -69,33 +69,33 @@ try
     
     % ############### SOC to Adjust the current SOC ###############
     if strcmpi (cellConfig, 'parallel')
-        adjCurr = sum(batteryParam.ratedCapacity(cellIDs))*adjCRate; % X of rated Capacity
+        adjCurr = sum(batteryParam.ratedCapacity(battID))*adjCRate; % X of rated Capacity
     else
-        adjCurr = mean(batteryParam.ratedCapacity(cellIDs))*adjCRate; % X of rated Capacity
+        adjCurr = mean(batteryParam.ratedCapacity(battID))*adjCRate; % X of rated Capacity
     end
     
     profile_cRate = 1;
     cur = pwd;
     cd(dataLocation)
     if strcmpi (cellConfig, 'single')
-        searchCriteria = "002_" + cellIDs(1) + "_" + profile_cRate + "C_CurrProfiles*";
+        searchCriteria = "002_" + battID(1) + "_" + profile_cRate + "C_CurrProfiles*";
     else
         searchCriteria = "002_" + num2str(numCells) + upper(cellConfig(1)) + ...
-            batteryParam.chemistry(cellIDs(1)) + "_" + profile_cRate + "C_CurrProfiles*";
+            batteryParam.chemistry(battID(1)) + "_" + profile_cRate + "C_CurrProfiles*";
     end
-    fName = dir(searchCriteria);
+    contents = dir(searchCriteria);
     cd(cur)
     
     % Create Current profile if it does not currently exist
-    if isempty(fName)
+    if isempty(contents)
         multiProfileGen(profile_cRate,...
-            cellIDs, dataLocation, cellConfig, batteryParam)
+            battID, dataLocation, cellConfig, batteryParam)
         cur = pwd;
         cd(dataLocation)
-        fName = dir(searchCriteria);
+        contents = dir(searchCriteria);
         cd(cur)
     end
-    load(fName.name); % Loads CycleProfiles and others
+    load(contents.name); % Loads CycleProfiles and others
     
     startProfileInd = find(cycleNames == profile2Run);
     endProfileInd = startProfileInd; % length(cycleProfiles);
@@ -105,7 +105,7 @@ try
     
     ii = startProfileInd:endProfileInd;
     load(dataLocation + "007BatteryParam.mat"); % Load prevSOC variable for use in this script since the variable isn't updated here (only in the functions)
-    prevSOC = mean(batteryParam.soc(cellIDs));
+    prevSOC = mean(batteryParam.soc(battID));
     
     % ############### Cool Down Before Adjusting SOC ###############
     msg = newline + "Beginning to Cool Down Before Adj. SOC. " + ...
@@ -115,11 +115,9 @@ try
     else
         disp(msg);
     end
-    [out1_wait, cell1_wait] = waitTillTime(waitTime, 'cellIDs', cellIDs,...
+    [out1_wait, cell1_wait] = waitTillTime(waitTime, 'battID', battID,...
         'testSettings', testSettings);
-    battTS = out1_wait;
-%     resultCollection{end+1} = [out1_wait1.Time + prevSeqTime, out1_wait1.Data];
-%     prevSeqTime = prevSeqTime + out1_wait1.Time(end);
+    testData = out1_wait;
     
     % ############### Adjusting current SOC to initial SOC ###############
     if(prevSOC >= initialSOC)
@@ -133,8 +131,8 @@ try
         else
             disp(msg);
         end
-        [out1_adj, cells_adj] = dischargeToSOC(initialSOC, adjCurr, 'cellIDs',...
-            cellIDs, 'testSettings', testSettings);
+        [out1_adj, cells_adj] = dischargeToSOC(initialSOC, adjCurr, 'battID',...
+            battID, 'testSettings', testSettings);
         
     else
          msg = newline + "Script 1." + newline + ...
@@ -148,10 +146,10 @@ try
             disp(msg);
         end
         
-        [out1_adj, cells_adj] = chargeToSOC(initialSOC, adjCurr, 'cellIDs', cellIDs,...
+        [out1_adj, cells_adj] = chargeToSOC(initialSOC, adjCurr, 'battID', battID,...
             'testSettings', testSettings);
     end
-    battTS = appendBattTS2TS(battTS, out1_adj);
+    testData = appendTestDataStruts(testData, out1_adj);
     
     
     % ############### Running Profile ###############
@@ -166,11 +164,9 @@ try
     end
     
     [out1, cells1] = runProfileToSOC(cycleProfiles(ii), targetSOC, [],...
-        'cellIDs', cellIDs, 'testSettings', testSettings);
-    battTS = appendBattTS2TS(battTS, out1);
-%     resultCollection{end+1} = [out1.Time + prevSeqTime, out1.Data];
-%     prevSeqTime = prevSeqTime + out1.Time(end);
-    
+        'battID', battID, 'testSettings', testSettings);
+    testData = appendTestDataStruts(testData, out1);
+   
     
     %% Script 2: Get Cell Voltage to Vmin
     % Cool Down After Profile
@@ -181,9 +177,9 @@ try
     else
         disp(msg);
     end
-    [out2_wait, cell2_wait] = waitTillTime(waitTime, 'cellIDs', cellIDs,...
+    [out2_wait, cell2_wait] = waitTillTime(waitTime, 'battID', battID,...
             'testSettings', testSettings);
-    battTS = appendBattTS2TS(battTS, out2_wait);
+    testData = appendTestDataStruts(testData, out2_wait);
     
 
     msg = newline + "Script 2." + newline + ...
@@ -196,23 +192,23 @@ try
     
     load(dataLocation + "007BatteryParam.mat"); % Load prevSOC variable for use in this script since the variable isn't updated here (only in the functions)
     volt = cell2_wait.volt(end); % First column
-    dischargedVolt = batteryParam.dischargedVolt(cellIDs);
+    dischargedVolt = batteryParam.dischargedVolt(battID);
     
     if strcmpi(cellConfig, 'parallel')
-        curr = sum(batteryParam.ratedCapacity(cellIDs))/30; % X of rated Capacity
+        curr = sum(batteryParam.ratedCapacity(battID))/30; % X of rated Capacity
     else
-        curr = mean(batteryParam.ratedCapacity(cellIDs))/30; % X of rated Capacity
+        curr = mean(batteryParam.ratedCapacity(battID))/30; % X of rated Capacity
     end
 
     % if cell is undervoltaged, charge back up or discharge if vice versa
-    if max(volt > dischargedVolt) % Max is here incase cellIDs contains more than one cellID
-       [out2, cells2] = dischargeToVolt(dischargedVolt, curr, 'cellIDs', cellIDs, ...
+    if max(volt > dischargedVolt) % Max is here incase battID contains more than one battID
+       [testData, metadata, testSettings] = dischargeToVolt(dischargedVolt, curr, 'battID', battID, ...
            'testSettings', testSettings);
         elseif max(volt < dischargedVolt)
-        [out2, cells2] = chargeToVolt(dischargedVolt, curr, 'cellIDs', cellIDs, ...
+        [out2, cells2] = chargeToVolt(dischargedVolt, curr, 'battID', battID, ...
            'testSettings', testSettings);
     end
-    battTS = appendBattTS2TS(battTS, out2);
+    testData = appendTestDataStruts(testData, out2);
     
     % Can add a runProfile test based on a dither current profile
         
@@ -224,9 +220,9 @@ try
     else
         disp(msg);
     end
-    [out3, cells3] = chargeToSOC(1, adjCurr, 'cellIDs', cellIDs,...
+    [out3, cells3] = chargeToSOC(1, adjCurr, 'battID', battID,...
             'testSettings', testSettings);
-    battTS = appendBattTS2TS(battTS, out3);
+    testData = appendTestDataStruts(testData, out3);
     % Can add a runProfile test based on a dither current profile
 
     
@@ -236,40 +232,40 @@ try
                                 out1_adj.time(:)', ...
                                 out1.time(:)' ];
     
-    DYNData.script1.voltage = [ out1_wait.data(:, volt_ind)', ...
-                                out1_adj.data(:, volt_ind)', ...
-                                out1.data(:, volt_ind)' ];
+    DYNData.script1.voltage = [ out1_wait.packVolt', ...
+                                out1_adj.packVolt', ...
+                                out1.packVolt' ];
                             
-    DYNData.script1.current = [ out1_wait.data(:, curr_ind)', ...
-                                out1_adj.data(:, curr_ind)', ...
-                                out1.data(:, curr_ind)' ] * -1; % Xly by -1 since charge = +ve and dischrg = -ve in the data collection, but "runProcessDynamic.m" identifies parameters with chrg = -ve etc
+    DYNData.script1.current = [ out1_wait.packCurr', ...
+                                out1_adj.packCurr', ...
+                                out1.packCurr' ] * -1; % Xly by -1 since charge = +ve and dischrg = -ve in the data collection, but "runProcessDynamic.m" identifies parameters with chrg = -ve etc
                             
-    DYNData.script1.ahCap = [ out1_wait.data(:, ah_ind)', ...
-                                out1_adj.data(:, ah_ind)', ...
-                                out1.data(:, ah_ind)' + out1_adj.data(end, ah_ind) ];
+    DYNData.script1.ahCap = [ out1_wait.packCap', ...
+                                out1_adj.packCap', ...
+                                out1.packCap' + out1_adj.data(end, ah_ind) ];
                             
     % Save Data for Script 2                        
     DYNData.script2.time =    [ out2_wait.time(:)', ...
                                 out2.time(:)'  ];
     
-    DYNData.script2.voltage = [ out2_wait.data(:, volt_ind)', ...
-                                out2.data(:, volt_ind)'  ];
+    DYNData.script2.voltage = [ out2_wait.packVolt', ...
+                                out2.packVolt'  ];
                             
-    DYNData.script2.current = [ out2_wait.data(:, curr_ind)', ...
-                                out2.data(:, curr_ind)' ] * -1; % Xly by -1 since charge = +ve and dischrg = -ve in the data collection, but "runProcessDynamic.m" identifies parameters with chrg = -ve etc
+    DYNData.script2.current = [ out2_wait.packCurr', ...
+                                out2.packCurr' ] * -1; % Xly by -1 since charge = +ve and dischrg = -ve in the data collection, but "runProcessDynamic.m" identifies parameters with chrg = -ve etc
                             
-    DYNData.script2.ahCap =   [ out2_wait.data(:, ah_ind)', ...
-                                out2.data(:, ah_ind)' ];
+    DYNData.script2.ahCap =   [ out2_wait.packCap', ...
+                                out2.packCap' ];
     
                             
     % Save Data for Script 3                        
     DYNData.script3.time =     out3.time(:)' ;
     
-    DYNData.script3.voltage =  out3.data(:, volt_ind)' ;
+    DYNData.script3.voltage =  out3.packVolt' ;
                             
-    DYNData.script3.current =  out3.data(:, curr_ind)'  * -1; % Xly by -1 since charge = +ve and dischrg = -ve in the data collection, but "runProcessDynamic.m" identifies parameters with chrg = -ve etc
+    DYNData.script3.current =  out3.packCurr'  * -1; % Xly by -1 since charge = +ve and dischrg = -ve in the data collection, but "runProcessDynamic.m" identifies parameters with chrg = -ve etc
                             
-    DYNData.script3.ahCap =    out3.data(:, ah_ind)';
+    DYNData.script3.ahCap =    out3.packCap';
                             
                             
     % Don't save battery param here, it updates the
@@ -279,11 +275,11 @@ try
     
     saveName = Filename + ".mat";
     
-    save(testSettings.saveDir + "\" + saveName , 'DYNData', 'battTS');
+    save(testSettings.saveDir + "\" + saveName , 'DYNData', 'testData');
         
         
     % Update Experiment Logs File
-    updateExpLogs(saveName, testSettings.purpose, cellIDs, batteryParam);
+    updateExpLogs(saveName, testSettings.purpose, battID, batteryParam);
     
     
     %     disp("Program Finished");

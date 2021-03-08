@@ -1,4 +1,4 @@
-function testData = waitTillTime(targTime, varargin)
+function [testData, metadata, testSettings]  = waitTillTime(targTime, varargin)
 %waitTillTime Idles the battery (pack) while waiting until the target time
 %is up
 %
@@ -30,6 +30,12 @@ function testData = waitTillTime(targTime, varargin)
 %			verbosity       = 0;    		: How often to display data on the command line
 %                                               0: every 60 timesteps 
 %                                               1: every timesteps 
+%
+%   Outputs:
+%       testData            : Struct of Test Data
+%       metadata            : Test MetaData such as starttime, Tested Batt etc
+%       testSettings        : Device, data measurement, and other settings
+%                               to allow the functioning of the test
 
 
 %% Setup Code
@@ -54,7 +60,8 @@ try
     'errorQ',           [],     ... %           "
     'randQ',            [],     ... %           "
     'testSettings',     [],     ... %           "
-    'verbosity',         0);        % -------------------------
+    'verbosity',         0,     ... %           " 
+    'eventLog',         []);        % -------------------------
 
 
     % read the acceptable names
@@ -169,7 +176,7 @@ try
             script_failSafes; %Run FailSafe Checks
             script_checkGUICmd; % Check to see if there are any commands from GUI
             % if limits are reached, break loop
-            if errorCode == 1 || strcmpi(testStatus, "stop")
+            if strcmpi(testStatus, "stop")
                 script_idle;
                 break;
             end

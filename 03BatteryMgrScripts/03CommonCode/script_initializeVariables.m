@@ -16,9 +16,9 @@ else
     % Seperates the path directory and the filename
     [path, filename, ~] = fileparts(currFilePath);
     
-    newStr = extractBetween(path,"",...
-                   "03DataGen","Boundaries","inclusive");
-    dataLocation = newStr + "\01CommonDataForBattery\";
+    newStr = extractBefore(path, "03BatteryMgrScripts");
+
+    dataLocation = newStr + "01CommonDataForBattery\";
     testSettings.dataLocation = dataLocation;
 
     %{

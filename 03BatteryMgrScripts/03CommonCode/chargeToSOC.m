@@ -17,14 +17,11 @@ function [testData, metadata, testSettings] = chargeToSOC(targSOC, chargeCurr, v
 %			eloadArgs     	= [],     		: Connection details of the Electronic Load
 %			tempModArgs    	= [],     		: Connection details of the Temperature measuring module
 %			sysMCUArgs     	= [],     		: Connection details of the Data Acquisition System. (Switches Relays and obtaines measurements)
-%			sysMCUArgs     	= [],     		: Arguments from the GUI used to save Data results
 %			saveArgs     	= [],     		: Arguments from the GUI used to save Data results
 %			stackArgs     	= [],     		: Arguments from the GUI about the cells to be tested
 %			dataQ         	= [],     		: Pollable DataQueue for real-time data transfer between 
 %                                               2 parallel-run programs such as the function and GUI
 %			errorQ        	= [],     		: Pollable DataQueue for real-time error data (exceptions) 
-%                                               transfer between 2 parallel-run programs such as the function and GUI
-%			randQ        	= [],     		: Pollable DataQueue for miscellaneous data (e.g confirmations etc) 
 %                                               transfer between 2 parallel-run programs such as the function and GUI
 %			randQ        	= [],     		: Pollable DataQueue for miscellaneous data (e.g confirmations etc) 
 %                                               transfer between 2 parallel-run programs such as the function and GUI
@@ -36,7 +33,7 @@ function [testData, metadata, testSettings] = chargeToSOC(targSOC, chargeCurr, v
 %       testSettings        : Device, data measurement, and other settings
 %                               to allow the functioning of the test
 
-%% Setup Code
+%% Parse Input Argument or set Defaults
 
 param = struct(...
     'trig1',            false,  ... % General to most functions
@@ -98,6 +95,7 @@ randQ = param.randQ;
 testSettings = param.testSettings;
 eventLog = param.eventLog;
 
+%% Setup Trigger Functions if enabled
 if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
         && param.trig1 == true  
     testSettings.trigPins = param.trig1_pin;
@@ -142,6 +140,7 @@ else
     trigAvail = false;
 end
 
+%% Start Routine
 try
     % Initializations
     script_initializeVariables; % Run Script to initialize common variables
@@ -262,6 +261,7 @@ catch MEX
         send(errorQ, MEX)
     end
 end
+
 %% Teardown
 script_resetDevices;
 

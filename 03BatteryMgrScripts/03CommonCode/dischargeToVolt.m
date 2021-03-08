@@ -32,7 +32,7 @@ function [testData, metadata, testSettings] = dischargeToVolt(targVolt, discharg
 %                               to allow the functioning of the test
 
 
-%% Setup Code
+%% Parse Input Argument or set Defaults
 
 param = struct(...
     'trig1',            false,  ... % General to most functions
@@ -94,6 +94,8 @@ randQ = param.randQ;
 testSettings = param.testSettings;
 eventLog = param.eventLog;
 
+%% Setup Trigger Functions if enabled
+
 if (isempty(testSettings) || ~isfield(testSettings, 'trigPins')) ...
         && param.trig1 == true  
     testSettings.trigPins = param.trig1_pin;
@@ -138,9 +140,10 @@ else
     trigAvail = false;
 end
 
+%% Start Routine
 
-% Initializations
 try
+    % Initializations
     script_initializeVariables; % Run Script to initialize common variables
     script_initializeDevices; % Initialized devices like Eload, PSU etc.
     curr = abs(dischargeCurr); %2.5A is 1C for the ANR26650
