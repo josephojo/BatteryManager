@@ -5,6 +5,14 @@ SOC_Traj = xk(xIND.SOC) + (sampleTime./(idealTimeLeft+sampleTime)).*(TARGET_SOC 
 
 references = [SOC_Traj(:)', zeros(1, NUMCELLS), zeros(1, NUMCELLS)];
 
+% Testing: Changing the u for power supply to the measured value
+u(end) = testData.packCurr(end, 1);
+
+% Combine the PSU and BalCurr based on the balancer transformation
+% matrix
+combCurr = combineCurrents(testData.packCurr(end, 1), optBalCurr, predMdl);
+                
+                
 % Using the equivalent current from balance commands and psu.
 % measured current here instead does not work while predicting
 % model states (EKF).

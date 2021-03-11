@@ -182,7 +182,8 @@ elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMe
     end
     
     balCurr = bal.Currents(1, logical(bal.cellPresent(1, :)));
-    
+    testData.balCurr(end+1, :)       = balCurr'; % "measured" balance current
+
     % Combine currents for both active and passive balancing currents
     if bal.isPassiveBalancing == true
         balActual = balCurr;

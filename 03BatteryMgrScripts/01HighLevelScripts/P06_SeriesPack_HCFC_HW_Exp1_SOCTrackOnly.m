@@ -148,7 +148,7 @@ xk(ind:ind+NUMCELLS-1, :)   =  testData.Ts'          ; ind = ind + NUMCELLS;
 testData.Cost = 0;
 testData.ExitFlag = 0;
 testData.Iters = 0;
-testData.balCurr = zeros(1, NUMCELLS);
+testData.optBalCurr = zeros(1, NUMCELLS);
 testData.optPSUCurr = zeros(1, NUMCELLS);
 testData.predStates = xk(:)';
 testData.predOutput = [testData.cellSOC(end, :), testData.Ts, testData.AnodePot];
@@ -268,6 +268,7 @@ P06_EKF;
 
 u = zeros(NUMCELLS + 1,1);
 combCurr = zeros(NUMCELLS, 1);
+optBalCurr = zeros(NUMCELLS, 1);
 
 options = nlmpcmoveopt;
 options.Parameters = {p1, p2, p3, p4};
@@ -322,7 +323,7 @@ try
     BalanceCellsFlag = true; 
 
 %% Main Loop  
-    while min(testData.cellSOC(end, :) <= TARGET_SOC) ...
+    while testData.packSOC(end, :) <= TARGET_SOC ...
             && ~strcmpi(testStatus, "stop")  
         
         if ( toc(testTimer)- prevMPCTime ) >= sampleTime && strcmpi(poolState, "finished")
@@ -382,9 +383,9 @@ try
                 
                 tElapsed_plant = toc(testTimer);
                 
-                % Combine the PSU and BalCurr based on the balancer transformation
-                % matrix
-                combCurr = combineCurrents(optPSUCurr, optBalCurr, predMdl);
+%                 % Combine the PSU and BalCurr based on the balancer transformation
+%                 % matrix
+%                 combCurr = combineCurrents(optPSUCurr, optBalCurr, predMdl);
                 
                 wait(0.05);
                 

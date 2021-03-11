@@ -361,6 +361,7 @@ testData.packSOC = [];
 testData.cellVolt = [];
 testData.packVolt = [];
 testData.cellCurr = [];
+testData.balCurr = [];
 testData.packCurr = [];
 testData.cellCap = [];
 testData.packCap = [];
