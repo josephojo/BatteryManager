@@ -35,6 +35,7 @@
         copyfile(codePath + "\" + "P06_PrepareMPCInput.m", testSettings.saveDir);
         copyfile(codePath + "\" + "P06_BattStateFcn_HW.m", testSettings.saveDir);
         copyfile(codePath + "\" + "P06_OutputFcn_HW.m", testSettings.saveDir);
+        copyfile(codePath + "\" + "P06_CostFcn_HW.m", testSettings.saveDir);
 
     end
     
