@@ -39,7 +39,7 @@ testData.cellCurr, testData.cellSOC);
 
 str = extractBefore(path, "03BatteryMgrScripts");
 
-testSettings.saveName = "006_" + battID + "_StdCharge_W_PassiveBal.mat";
+testSettings.saveName = "006_" + battID + "_StdCharge_W_PassiveBal";
 testSettings.saveDir = str + "00ProjectData\" + extractBefore(fName, 4) + "\";
 
 testSettings.saveDir = testSettings.saveDir + metadata.startDate...
