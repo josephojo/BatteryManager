@@ -445,9 +445,9 @@ try
     % Add Manipulated variable constraints
     % Small Rates affect speed a lot
     for i = 1:NUMCELLS % 
-        mpcObj.MV(i).Max =  MAX_BAL_CURR;     mpcObj.MV(i).RateMax =  1.0; % MAX_CELL_CURR;
+        mpcObj.MV(i).Max =  0;     mpcObj.MV(i).RateMax =  1.0; % MAX_CELL_CURR;
         mpcObj.MV(i).Min =  MIN_BAL_CURR;     mpcObj.MV(i).RateMin = -1.0; % -2; % -6
-    end % 
+    end % MAX_BAL_CURR
     
     mpcObj.MV(NUMCELLS + 1).Max = MAX_CELL_CURR + MIN_BAL_CURR;
     mpcObj.MV(NUMCELLS + 1).Min = MIN_CELL_CURR + MAX_BAL_CURR; % MIN_PSUCURR_4_BAL; % 
@@ -984,10 +984,10 @@ socDev = mean(chrgSOC, 2) - ref(:, 9:12); % mean(chrgSOC, 2) - chrgSOC;
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Objective Function Weights (0, 1, 5, 20 etc))
 % ---------------------------------------------------------------------
-A = 100; % SOC Tracking
+A = 10; % SOC Tracking
 % If SOC is past the set balance SOC range, then don't let the SOC dev
 % affect the cost function.
-A_dev = 100 * predMdl.Curr.balWeight; 
+A_dev = 20 * predMdl.Curr.balWeight; 
 
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

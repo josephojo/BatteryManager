@@ -22,7 +22,7 @@ if predMdl.Curr.balWeight == 1
 %     else
 %         MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.40;
 %     end
-    MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.35;
+    MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.35; % 0.20;
 else
     MAX_CHRG_VOLT = cellData.MAX_CHRG_VOLT - 0.01;
 end
