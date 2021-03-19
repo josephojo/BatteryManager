@@ -1,8 +1,15 @@
 %% Series-Pack Fast Charging
 % By Joseph Ojo
 %
-% This test performs HCFC without the charging component of balancing
-% The minBalSOC value is also changed to later during charging
+%% Change Current Directory
+
+% clearvars;
+%
+% currFilePath = mfilename('fullpath');
+% [mainPath, filename, ~] = fileparts(currFilePath);
+% cd(mainPath)
+
+% clearvars -except bal eventLog; clc
 
 %% Initialize Variables and Devices
 try
@@ -72,8 +79,7 @@ end
 
 %% Constants
 P06_Constants;
-ExpName = "HCFC_EXP3";
-BAL_SOC = [0.35];% Balancing is only allowed to startup again at these SOCs
+ExpName = "HCFC_Exp3";
 
 
 %% Predictive Model
@@ -291,35 +297,33 @@ try
     y = [ testData.cellVolt(end, :),  y_Ts(:)', ANPOT(:)'];
      
     
-    % Start  the code off without balancing
-    BalanceCellsFlag = false; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
-    predMdl.Curr.balWeight = 0;
-    p2 = predMdl;
-    options.Parameters = {p1, p2, p3, p4};
-    
-    socCheck = testData.cellSOC(end, :);
-    if max(socCheck < MAX_BAL_SOC) ... % If all cells are > MIN_BAL_SOC && < MAX_BAL_SOC
-            && min(socCheck > MIN_BAL_SOC)...
-            && abs( max(socCheck) - min(socCheck) ) > ALLOWABLE_SOCDEV
-
-        if max(max(round(socCheck, 2)) == BAL_SOC) % And if the cell with the highest SOC has reached a BAL_SOC
-
-            % If any of the cells are close to max voltage,
-            % manually reduce the PSU current limit.
-            % This is really not ideal, the mpc should be able to
-            % figure this out itself
-            if max(testData.cellVolt(end, :) > 3.85) && max(testData.cellSOC(end, :) > MAX_BAL_SOC)
-                mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_HIVOLTBAL; % + max(testData.cellSOC(end, :));
-            else
-                mpcObj.MV(NUMCELLS + 1).Min = DfltMinPSUVal;
-            end
-            BalanceCellsFlag = true; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
-            predMdl.Curr.balWeight = 1;
+    if ONLY_CHRG_FLAG == false...
+            &&(max(testData.cellSOC(end, :) > MAX_BAL_SOC) ... % If at least one cell is  > MAX_BAL_SOC || < MIN_BAL_SOC
+            || max(testData.cellSOC(end, :) < MIN_BAL_SOC))...
+            || abs( max(xk(xIND.SOC)) - min(xk(xIND.SOC)) ) < ALLOWABLE_SOCDEV
+        
+        BalanceCellsFlag = false; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
+        predMdl.Curr.balWeight = 0;
+        p2 = predMdl;
+        options.Parameters = {p1, p2, p3, p4};
+    elseif max(testData.cellSOC(end, :) < MAX_BAL_SOC) ... % If all cells are > MIN_BAL_SOC && < MAX_BAL_SOC
+            && min(testData.cellSOC(end, :) > MIN_BAL_SOC)
+        
+        % If any of the cells are close to max voltage,
+        % manually reduce the PSU current limit.
+        % This is really not ideal, the mpc should be able to
+        % figure this out itself
+        if max(testData.cellVolt(end, :) > 3.85) && max(testData.cellSOC(end, :) > MAX_BAL_SOC)
+            mpcObj.MV(NUMCELLS + 1).Min = MIN_PSUCURR_4_HIVOLTBAL; % + max(testData.cellSOC(end, :));
+        else
+            mpcObj.MV(NUMCELLS + 1).Min = DfltMinPSUVal;
         end
+        BalanceCellsFlag = true; % Out of range Balancing SOC flag - Flag to set when SOC is greater/less than range for balancing
+        predMdl.Curr.balWeight = 1;
     end
     
 %% Main Loop  
-    while testData.packSOC(end, :) <= TARGET_SOC ... % min(testData.cellSOC(end, :) <= TARGET_SOC) ...
+    while testData.packSOC(end, :) <= TARGET_SOC ...
             && ~strcmpi(testStatus, "stop")  
         
         if ( toc(testTimer)- prevMPCTime ) >= sampleTime && strcmpi(poolState, "finished")

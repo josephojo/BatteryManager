@@ -72,7 +72,7 @@ TARGET_SOC = 0.9; % 0.85; %0.98;
 testSettings.TARGET_SOC = TARGET_SOC;
 
 ANPOT_Target = 0.002;  % Anode Potential has to be greater than 0 to ensure no lithium deposition
-ANPOT_Target_BAL = 0.01;  % Anode Potential has to be greater than 0 to ensure no lithium deposition
+ANPOT_Target_BAL = 0.02; % 0.05; % Anode Potential has to be greater than 0 to ensure no lithium deposition
 
 % Balance Efficiencies
 chrgEff = 0.774; 

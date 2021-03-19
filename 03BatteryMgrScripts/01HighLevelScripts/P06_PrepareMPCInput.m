@@ -53,13 +53,14 @@ if ONLY_CHRG_FLAG == false
     socCheck = testData.cellSOC(end, :);
     if (max(socCheck > MAX_BAL_SOC) ...
             || min(socCheck < MIN_BAL_SOC)) ...
-            || abs( max(socCheck) - min(socCheck) ) <= ALLOWABLE_SOCDEV
+            || round(abs( max(socCheck) - min(socCheck) ), 4) <= ALLOWABLE_SOCDEV
         
         BalanceCellsFlag = false;
         predMdl.Curr.balWeight = 0;
         p2 = predMdl;
         options.Parameters = {p1, p2, p3, p4};
         u = [zeros(NUMCELLS, 1); u(end)];
+        bal.Timed_Balance_Stop(balBoard_num, true); % Stop the physical balancers if they're still active
         mpcObj.MV(NUMCELLS + 1).Min = DfltMinPSUVal;
         
         % Allow Anode potential to reach zero since it is not
@@ -73,7 +74,7 @@ if ONLY_CHRG_FLAG == false
         % the allowable deviation at specific SOC levels
     elseif max(socCheck < MAX_BAL_SOC) ...
             && min(socCheck > MIN_BAL_SOC) ...
-            && abs( max(socCheck) - min(socCheck)) >= ALLOWABLE_SOCDEV
+            && round(abs( max(socCheck) - min(socCheck)), 4) >= ALLOWABLE_SOCDEV
         
         if max(max(round(socCheck, 2)) == BAL_SOC) % And if the cell with the highest SOC has reached a BAL_SOC
             % If any of the cells are close to max voltage,

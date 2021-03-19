@@ -10,7 +10,7 @@ cellData    = p3;   % Constant Cell Data
 indices     = p4;   % Indices for the STATES (x)and OUTPUTS (y) presented as a struts
 
 NUMCELLS = cellData.NUMCELLS;
-allowableSOCDev = cellData.ALLOWABLE_SOCDEV;
+% allowableSOCDev = cellData.ALLOWABLE_SOCDEV;
 % cap = cellData.CAP; % Capacity of all cells
 
 xIND = indices.x;
@@ -101,23 +101,25 @@ end
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Objective Function Weights (0, 1, 5, 20 etc))
 % ---------------------------------------------------------------------
-A = 100; % SOC Tracking
+A = 100; % 5; % SOC Tracking
 % If SOC is past the set balance SOC range, then don't let the SOC dev
 % affect the cost function.
-A_dev = 200 * predMdl.Curr.balWeight; 
+A_dev =200 * predMdl.Curr.balWeight; % 10
 
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Scaling Factors for each objective
 % ---------------------------------------------------------------------
-scale_soc = 1; % 0.075; % 0.0025;
-
+% scale_soc = 0.004; 
+% scale_socDev = 0.07;
+scale_soc = 1; 
+scale_socDev = 1;
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Cost Function
 % ---------------------------------------------------------------------
 fastChargingCost = sum( ( (A/scale_soc) .* (socTracking) ) .^2);
-socBalancingCost = sum( ( (A_dev/scale_soc) .* (allowableSOCDev - socDev) ) .^2);
+socBalancingCost = sum( ( (A_dev/scale_socDev) .* (0 - socDev) ) .^2);
 J = sum([...
     fastChargingCost,  ... % avgSOC) ) .^2),  ... %
     socBalancingCost,  ...
