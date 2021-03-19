@@ -87,8 +87,9 @@ load(dataLocation + "007BatteryParam.mat", 'batteryParam');
 
 % Battery Configuration
 stackConfig = batteryParam.stackConfig(battID);
-numCells_Ser = double(extractBetween(stackConfig, 1, 1)); % Number of cells in series
-numCells_Par = double(extractBetween(stackConfig, 3, 3)); %Number of cells in parallel
+stackConfig_split = strsplit(stackConfig, {'s', 'p', 'S', 'P'});
+numCells_Ser = double(stackConfig_split(1)); % Number of cells in series
+numCells_Par = double(stackConfig_split(2)); %Number of cells in parallel
 numCells = numCells_Ser * numCells_Par; % Total number of cells in system
 
 
