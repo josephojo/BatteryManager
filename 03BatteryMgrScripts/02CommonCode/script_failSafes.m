@@ -29,7 +29,7 @@ for cell_Ind = 1:numCells_Ser
             error = sprintf("Battery VOLTAGE for Cell("+cell_Ind+", :) in " + battID + " is Less than Limit: %.2f V", testData.cellVolt(end, cell_Ind));
             warning(error);
             errorCode(cell_Ind) = ErrorCode.UV;
-            testStatus = "stop";
+%             testStatus = "stop";
 %         end
     elseif testData.cellVolt(end, cell_Ind) >= batteryParam.maxVolt(battID)/numCells_Ser % Dividing by numCells in series since maxVolt is for the series stack
 %         script_queryData; % Check again

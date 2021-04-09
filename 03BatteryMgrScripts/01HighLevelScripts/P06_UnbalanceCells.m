@@ -14,7 +14,7 @@
 %%
 warning('on','backtrace')
 
-%% Initialize Variables and Devices
+%% Initialize Variables and     Devices
 try
     if ~exist('battID', 'var') || isempty(battID)
         battID = ["AD0"]; % ID in Cell Part Number (e.g BAT11-FEP-AA1). Defined again in initializeVariables
@@ -174,6 +174,9 @@ indices.nx = nx;
 indices.ny = ny;
 indices.nu = nu;
 
+% How many times do you want to "reset" and start again?
+% This is due to the SOC estimation inaccuracy while discharging
+ITERATIONS = 3; 
 
 %% Predictive Model
 try
@@ -619,7 +622,13 @@ try
     tElapsed_plant = 0; prevStateTime = 0; prevMPCTime = 0;
     
 %% loop
-    while (max(abs(TARGET_SOC - round(testData.cellSOC(end, :), 3)) > 0.0005) == 1) && ~strcmpi(testStatus, "stop")     
+    while (max(abs(TARGET_SOC - round(testData.cellSOC(end, :), 3)) > 0.0005) == 1) ...
+            && ~strcmpi(testStatus, "stop") %...
+%             && iter >= ITERATIONS
+%         if (max(abs(TARGET_SOC - round(testData.cellSOC(end, :), 3)) > 0.0005) == 1)
+%             waitTillTime(targWaitTime, 
+%         end
+        
         if ( toc(testTimer)- prevMPCTime ) >= sampleTime && strcmpi(poolState, "finished")
             tElapsed_MPC = toc(testTimer);
             actual_STime = tElapsed_MPC - prevMPCTime;
