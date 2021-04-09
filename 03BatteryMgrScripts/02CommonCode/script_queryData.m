@@ -15,21 +15,15 @@ if ~exist('testTimer', 'var')
     testTimer = tic; % Start Timer for read period
 end
 
+%% Time Duration recording
+
 % Capture Time
 tElapsed = toc(testTimer) - timerPrev(1);
+testData.time(end+1, :) = tElapsed;
 
-if isempty(testData.time) && strcmpi(testSettings.voltMeasDev, "mcu") 
-   % Activate relay to allow the LJ MCU to measure Voltage. 
-    % This is needed so that the MCU can measure a more accurate voltage. 
-    % Keep in mind though that the MCU cannot measure series voltage
-    % past 5V
-    LJ_MeasVolt = true; 
-    LJ_MeasVolt_Inverted = true; % The relay being used is inverted. I.e 0 means true and 1 means false
-    [ljudObj,ljhandle] = MCU_digitalWrite(ljudObj, ljhandle, LJ_MeasVoltPin, LJ_MeasVolt, LJ_MeasVolt_Inverted);
- 
-end
 
-% Temperature Measurement for the stack. Each temp measurement is indicated
+%% Temperature Measurement for the stack. 
+% Each temp measurement is indicated
 % by the channel numbers they are connected to
 if ismember("Temp", testSettings.data2Record) && strcmpi(testSettings.tempMeasDev, "Mod16Ch")
     if ~isempty(tempChnls)
@@ -76,7 +70,28 @@ end
 % thermoData(1) = 0; thermoData(2) = 0; thermoData(3) = 0;
 %}
 
-% Voltage Measurement for the stack. Each cell is so far made to equal that of the stack
+
+%% Voltage Measurement for the stack.
+
+% If using a single cell or a parallel cell stack and the 
+% voltage measurement device is the Labjack U3-HV (LJ) for more accurate
+% measurements, the relay connect the battery to the LJ for measurement
+% TO DO: Move this to the "script_initializeVariable" script since it only
+% really needs to be called once
+if isempty(testData.time) && strcmpi(testSettings.voltMeasDev, "mcu") ...
+        && (strcmpi(cellConfig, 'series') || strcmpi(cellConfig, 'SerPar'))
+   % Activate relay to allow the LJ MCU to measure Voltage. 
+    % This is needed so that the MCU can measure a more accurate voltage. 
+    % Keep in mind though that the MCU cannot measure series voltage
+    % past 5V
+    LJ_MeasVolt = true; 
+    LJ_MeasVolt_Inverted = true; % The relay being used is inverted. I.e 0 means true and 1 means false
+    [ljudObj,ljhandle] = MCU_digitalWrite(ljudObj, ljhandle, LJ_MeasVoltPin, LJ_MeasVolt, LJ_MeasVolt_Inverted);
+end
+
+% Each cell is made to equal that of the stack if it is parallel ot single
+% cell and is individually called for series/seris-parallel stacks if
+% called from the DC2100A balancer
 if ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDev, "mcu")
     script_avgLJMeas;
     
@@ -106,7 +121,7 @@ elseif ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMe
     
     % Get cell measurements if available
     if strcmpi(cellConfig, 'series') || strcmpi(cellConfig, 'SerPar')
-       % This is VERY bad to do!!! 
+       % This is a VERY bad thing to do!!! 
        % Cells will most likely not be balanced at all times. 
        % Only leaving this here since the powerDevs cannot sense individual cell voltages
        testData.cellVolt(end+1, :) = testData.packVolt(end, :) / numCells_Ser; 
@@ -121,7 +136,9 @@ elseif ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMe
     
 end
 
-% Current Measurement for the stack. Each cell is so far made to equal that of the stack
+
+%% Current Measurement for the stack. 
+% Each cell is so far made to equal that of the stack
 if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "mcu")  % if strcmp(cellConfig, 'single') ~= true
     % No need to re-run the script if it has already been run during voltage measurement
     if ~ismember("volt", testSettings.data2Record) || ~strcmpi(testSettings.voltMeasDev, "mcu") 
@@ -198,8 +215,8 @@ elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMe
 end
 
 
-
-% SOC and AhCap Estimation for the stack. Each cell is so far made to equal that of the stack
+%% SOC and AhCap Estimation for the stack. 
+% Each cell is so far made to equal that of the stack
 if ismember("SOC", testSettings.data2Record)
     tmpT = toc(testTimer);
     deltaT = tmpT - timerPrev(4);
@@ -248,6 +265,8 @@ if ismember("SOC", testSettings.data2Record)
 end
 
 %{
+% Old Code that uses timeseries type instead of new struct method
+% It is kept here in case. Should be removed soon
 % #DEP_01 - If this order changes, the order in "script_initializeVariables" 
 % should also be altered
 data = [packVolt, packCurr, packSOC, AhCap,...
@@ -260,7 +279,8 @@ data = [packVolt, packCurr, packSOC, AhCap,...
 battTS = addsample(battTS,'Data',data,'Time',tElasped);
 %}
 
-testData.time(end+1, :) = tElapsed;
+
+%% Data Print in Console Section
 
 if caller == "gui"
     battData.data = data;
