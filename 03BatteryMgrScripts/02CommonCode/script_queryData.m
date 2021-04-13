@@ -139,6 +139,16 @@ end
 
 %% Current Measurement for the stack. 
 % Each cell is so far made to equal that of the stack
+
+% Use Current Data from either PSU or ELOAD for Battery current
+if strcmpi(battState, "discharging")
+    testData.packCurr(end+1, :) = eload.MeasureCurr();
+elseif strcmpi(battState, "charging")
+    testData.packCurr(end+1, :) = -psu.measureCurr();
+elseif strcmpi(battState, "idle")
+    testData.packCurr(end+1, :) = 0.0;
+end
+    
 if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "mcu")  % if strcmp(cellConfig, 'single') ~= true
     % No need to re-run the script if it has already been run during voltage measurement
     if ~ismember("volt", testSettings.data2Record) || ~strcmpi(testSettings.voltMeasDev, "mcu") 
@@ -154,32 +164,19 @@ if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDe
     cSigP_N2 = round(cSigP2 - cSigN2, 4); %4,'significant')+0.00;
     cells.curr(cellIDs) = [(cSigP_N1 - 2.4902)/0.1, (cSigP_N2 - 2.5132)/0.1]; % Sensor Sensitivity = 100mV/A
     %}
-    
-    adcAvgCounter = 0; currPos = 0; currNeg = 0; % ain1 = 0;
-    
-    testData.packCurr(end+1, :) = -(cSigP_N1 - 2.4902)/0.1; % Negative for Charging, Pos for discharging
-    
     if strcmpi(battState, "idle")
         testData.packCurr(end+1, :) = 0.0;
     end
     % Get cell measurements if available
     if strcmpi(cellConfig, 'parallel') || strcmpi(cellConfig, 'SerPar')
-        % Implementation coming soon.
+        %% Temporary implementation for reading current from arduino
+        testData.cellCurr(end+1, :) = ardCurr(ardChnls);
     else
         testData.cellCurr(end+1, :) = testData.packCurr(end, :); % Assign stack current to individual current
     end
     
 
-elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "powerDev") 
-    % Use Current Data from either PSU or ELOAD for Battery current
-    if strcmpi(battState, "discharging")
-        testData.packCurr(end+1, :) = eload.MeasureCurr();
-    elseif strcmpi(battState, "charging")
-        testData.packCurr(end+1, :) = -psu.measureCurr();
-    elseif strcmpi(battState, "idle")
-        testData.packCurr(end+1, :) = 0.0;
-    end
-    
+elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "powerDev")   
     % Get cell measurements if available
     if strcmpi(cellConfig, 'parallel') || strcmpi(cellConfig, 'SerPar')
         % This Implementation is wrong since urrent won't be the same due
@@ -188,19 +185,11 @@ elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMe
     else
         testData.cellCurr(end+1, :) = testData.packCurr(end, :); % Assign stack current to individual current
     end
+    
 elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "balancer")
-    % Use Current Data from either PSU or ELOAD for Pack current
-    if strcmpi(battState, "discharging")
-        testData.packCurr(end+1, :) = eload.MeasureCurr(); % Discharge is positive
-    elseif strcmpi(battState, "charging")
-        testData.packCurr(end+1, :) = -psu.measureCurr(); % Charging is negative
-    elseif strcmpi(battState, "idle")
-        testData.packCurr(end+1, :) = 0.0;
-    end
     
     balCurr = bal.Currents(1, logical(bal.cellPresent(1, :)));
     testData.balCurr(end+1, :)       = balCurr'; % "measured" balance current
-
     % Combine currents for both active and passive balancing currents
     if bal.isPassiveBalancing == true
         balActual = balCurr;
