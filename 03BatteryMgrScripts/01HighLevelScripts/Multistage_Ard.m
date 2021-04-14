@@ -29,7 +29,7 @@ for i = range(1:50)
     % Discharge
     % Discharging stage [0.5C]
     msg = newline + 'Cycle ' + i ' : Discharging to 10%'; disp(msg);
-    battDischrg = dischargeToSOC(0.1, 0.5*CAP, 'battID', battID', 'testSettings', testSettings);
+    battDischrg = dischargeToSOC(0.1, 0.5*CAP, 'battID', battID, 'testSettings', testSettings);
     saveTestData(testData, metadata, testSettings, filename);
     
     % Wait 
@@ -38,7 +38,7 @@ for i = range(1:50)
     saveTestData(testData, metadata, testSettings, filename);
 
     % Charge
-    %First charging stage [-2C]
+    % First charging stage [-2C]
     msg = newline + 'Cycle ' + i ' : Charging to cutoff voltage of 3.5 V at 2C'; disp(msg);
     battCharg = chargeToVolt(3.5, 2*CAP, 'battID', battID, 'testSettings', testSettings);
     saveTestData(testData, metadata, testSettings, filename);

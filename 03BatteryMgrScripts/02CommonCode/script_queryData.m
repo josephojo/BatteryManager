@@ -170,7 +170,7 @@ if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDe
     % Get cell measurements if available
     if strcmpi(cellConfig, 'parallel') || strcmpi(cellConfig, 'SerPar')
         %% Temporary implementation for reading current from arduino
-        testData.cellCurr(end+1, :) = ardCurr(ardChnls);
+        testData.cellCurr(end+1, :) = measureCurr_Ard(ard, 'channels', ardChnls);
     else
         testData.cellCurr(end+1, :) = testData.packCurr(end, :); % Assign stack current to individual current
     end
