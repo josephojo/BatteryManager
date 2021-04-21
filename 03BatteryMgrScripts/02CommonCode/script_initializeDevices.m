@@ -159,23 +159,25 @@ elseif strcmpi(caller, "cmdWindow")
     %% Command Window
     % When called by the command window, the connection settings will need to be determined on its own
     
-    % Arduino
-    %##########################################################################
-    % ardPort = 'COM8';
-    % ardSerial = instrfind('Port',ardPort, 'Status', 'open');
-    % if isempty(ardSerial)
-    %     ard = serial(ardPort);
-    %     ard.BaudRate = 115200;
-    %     ard.DataBits = 8;
-    %     ard.Parity = 'none';
-    %     ard.StopBits = 1;
-    %     ard.Terminator = 'LF';
-    %     fopen(ard);
-    % elseif ~exist('ard','var')
-    %     ard = ardSerial;
-    % end
-    % wait(2);
-    % -------------------------------------------------------------------------
+%     Arduino
+%     ##########################################################################
+    ardPort = 'COM4';
+    ard = arduino(ardPort, 'Nano');
+    
+%     ardSerial = instrfind('Port', ardPort, 'Status', 'open');
+%     if isempty(ardSerial)
+%         ard = serial(ardPort);
+%         ard.BaudRate = 115200;
+%         ard.DataBits = 8;
+%         ard.Parity = 'none';
+%         ard.StopBits = 1;
+%         ard.Terminator = 'LF';
+%         fopen(ard);
+%     elseif ~exist('ard','var')
+%         ard = ardSerial;
+    end
+    wait(2);
+    -------------------------------------------------------------------------
     
     %ARRAY ELOAD
     %##########################################################################
