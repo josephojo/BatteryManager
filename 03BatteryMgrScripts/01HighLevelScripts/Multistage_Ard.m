@@ -1,27 +1,26 @@
 %% Battery Parameters
 
-battID = 'test123'; %Need to add the battery to 007BatteryParam file
-ard = arduino; %Connection to the arduino board
-ardChnls = [1 2 3 4];
+battID = 'AD6'; %Need to add the battery to 007BatteryParam file
+% ard = arduino; %Connection to the arduino board
+ardChnls = [0 1 2 3];
 
 waitTime = 300; %Cooldown period in seconds (5min)
 
-newStr = extractBetween(path,"",...
-               "NewFolder","Boundaries","inclusive");
-dataLocation = newStr + "\Battery_data\";  %%Changed this to a seperate folder to store data
+newStr = 'C:\Users\joeta\OneDrive\Desktop\BatteryManager\01CommonDataForBattery\'
+dataLocation = newStr + "Battery_data\";  %%Changed this to a seperate folder to store data
 dateStr = string(datetime('now', 'Format','yyMMdd_HHmm'));
 metadata.startDate = string(datetime('now', 'Format','yyMMdd'));
 metadata.startTime = string(datetime('now', 'Format','HHmm'));
 
 testSettings.saveDir = dataLocation;
-testSettings.saveName = "test123_" + dateStr,  'metadata', '-append';
-testSettings.tempChnls = [1, 2, 3, 4];
+testSettings.saveName = "AD6" + dateStr,  'metadata', '-append';
+testSettings.tempChnls = [9, 10, 11, 12, 13, 14];
 
 currFilePath = mfilename('fullpath');
 [path, filename, ~] = fileparts(currFilePath);
 
-load(dataLocation + "007BatteryParam.mat");
-CAP = batteryParam.ratedCapacity(battID); %Need this to not change throughout cycles so used ratedCapacity instead
+load(newStr + "007BatteryParam.mat");
+CAP = batteryParam.ratedCapacity(battID); 
 
     %% Looping Cycles
 for i = range(1:50)
