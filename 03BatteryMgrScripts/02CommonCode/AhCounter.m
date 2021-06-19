@@ -124,8 +124,8 @@ try
     end
     
     if isempty(testSettings)
-        testSettings.tempChnls = [9, 10];
-        testSettings.cellConfig = 'single';
+        testSettings.tempChnls = 9:13;
+%         testSettings.cellConfig = 'single';
     end
     
     % Step 1: Bring the cell  to Full Capacity
@@ -141,23 +141,22 @@ try
         dischargeToSOC(0, cRate_chrg*cap, 'battID', battID, 'testSettings', testSettings);
     testData = appendTestDataStruts(testData_temp, testData_dchrg);
     metadata = appendTestDataStruts(metadata_temp, metadata_dchrg);
-
     
     % Save data
-    if errorCode == 0 && tElasped > 1
-        packAhCap = abs(testData.packCap(end, :));
-        batteryParam.capacity(battID) = packAhCap;
-
-        % Store the individual cell Capacities as well if connected in
-        % series
+    if ~isempty(testData.time)
         if strcmpi(cellConfig, 'series') || strcmpi(cellConfig, 'SerPar')
             cellAhCap = abs(testData.cellCap(end, :)');
             batteryParam.cellCap(battID) = cellAhCap;
         end
-        
-        testData.packAhCap = packAhCap;
-        testData.cellAhCap = cellAhCap;
-        testSettings.purpose = "To update capacity count for battery (pack).";
+        if strcmpi(cellConfig, 'parallel') 
+            cellAhCap = abs(testData.cellCap(end, :));
+            batteryParam.cellCap(battID) =  cellAhCap;
+            packAhCap = sum(cellAhCap);
+            batteryParam.capacity(battID) = packAhCap;
+        end
+%         testData.packAhCap = packAhCap;
+%         testData.cellAhCap = cellAhCap;
+%         testSettings.purpose = "To update capacity count for battery (pack).";
         
         % Get Current File name
         [~, filename, ~] = fileparts(mfilename('fullpath'));

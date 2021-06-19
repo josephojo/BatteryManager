@@ -1,6 +1,11 @@
 %% Series-Pack Fast Charging
 % By Joseph Ojo
-%
+% 
+% This script fast charges a series pack while managing the anode potential
+% level (Health-Conscious Fast Charging). It also uses the DC2100A active
+% balancer to ensure that each parallel module in the series stack is
+% equally charged. Both bal_charge and bal_discharge are used.
+
 %% Change Current Directory
 
 % clearvars;
