@@ -16,16 +16,17 @@ if ~exist('eventLog', 'var')
 end
 
 
-% Charge to 90% using 0.3C of rated capacity
+%% Charge to 90% using 0.3C of rated capacity
 TARGET_SOC = 0.9;
 chrgCurr = 0.3 * RATED_CAP;
+
 [testData, metadata, testSettings] = chargeToSOC(TARGET_SOC, chrgCurr,...
     'battID', battID, 'testSettings', testSettings,...
     'eventLog', eventLog);
 
 
  %% Anode Potential Lookup table (From "01_INR18650F1L_AnodeMapData.mat")
-load(testSettings.dataLocation + '01_INR18650F1L_AnodeMapData.mat'); % Lithium plating rate
+load(testSettings.dataLocation + "001_AnodeMapData_" + batteryParam.cellPN(battID)+ ".mat"); % Lithium plating rate
 anPotMdl.Curr = cRate_mesh * RATED_CAP;
 anPotMdl.SOC = soc_mesh;
 anPotMdl.ANPOT = mesh_anodeGap;

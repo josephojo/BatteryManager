@@ -181,7 +181,8 @@ ITERATIONS = 3;
 %% Predictive Model
 try
     % ######## Voltage Model ########
-    load(dataLocation + "008OCV_" + battID + ".mat", 'OCV', 'SOC'); 
+    load(dataLocation + "001_ECTM_" + batteryParam.cellPN(battID) + ".mat", ...
+        'OCV', 'SOC'); 
     
 %     C1 = 47.827;
 %     C2 = 8.5956e+05;
@@ -345,8 +346,8 @@ try
     currMdl.T_dchrg = T_dchrg;
     currMdl.balWeight = 1; % Whether or not to use the balancing currents during optimization
     
-    % Anode Potential (indirectly Lithium Plating) Lookup table (From "01_INR18650F1L_AnodeMapData.mat")
-    load(dataLocation + '01_INR18650F1L_AnodeMapData.mat'); % Lithium plating rate
+    % Anode Potential (indirectly Lithium Plating) Lookup table (From "001_AnodeMapData_[Cell_PartNumber].mat")
+    load(dataLocation + "001_AnodeMapData_" + batteryParam.cellPN(battID)+ ".mat"); % Lithium plating rate
     anPotMdl.Curr = cRate_mesh * RATED_CAP;
     anPotMdl.SOC = soc_mesh;
     anPotMdl.ANPOT = mesh_anodeGap;

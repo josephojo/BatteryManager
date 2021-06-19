@@ -1,18 +1,13 @@
 try
     %% Voltage Model 
-    load(dataLocation + "008OCV_" + battID + ".mat", 'OCV', 'SOC'); 
-    
-    C1 = 47.827;
-    C2 = 8.5956e+05;
-    R1 = 0.0022329;
-    R2 = 0.046958;
-    Rs = 0.05867;
-    
-    C1 = C1 * ones(1, NUMCELLS);
-    C2 = C2 * ones(1, NUMCELLS);
-    R1 = R1 * ones(1, NUMCELLS);
-    R2 = R2 * ones(1, NUMCELLS);
-    Rs = Rs * ones(1, NUMCELLS);
+    load(dataLocation + "001ECTM_" + batteryParam.cellPN(battID) + ".mat", ...
+        'OCV', 'SOC', 'voltMdlParam', 'tempMdlParam'); 
+
+    C1 = voltMdlParam.C1 * ones(1, NUMCELLS);
+    C2 = voltMdlParam.C2 * ones(1, NUMCELLS);
+    R1 = voltMdlParam.R1 * ones(1, NUMCELLS);
+    R2 = voltMdlParam.R2 * ones(1, NUMCELLS);
+    Rs = voltMdlParam.Rs * ones(1, NUMCELLS);
     
     A11 = -1./(R1 .* C1);
     A12 = zeros(1, length(A11));
@@ -45,11 +40,11 @@ try
     
     
     %%  Temp Model 
-    cc = 59.903 * ones(1, NUMCELLS);
-    cs = 0.24409 * ones(1, NUMCELLS);
-    rc = 0.42963 * ones(1, NUMCELLS);
-    re = 0.098836 * ones(1, NUMCELLS);
-    ru = 16.419 * ones(1, NUMCELLS);
+    cc = tempMdlParam.cc * ones(1, NUMCELLS);
+    cs = tempMdlParam.cs * ones(1, NUMCELLS);
+    rc = tempMdlParam.rc * ones(1, NUMCELLS);
+    re = tempMdlParam.re * ones(1, NUMCELLS);
+    ru = tempMdlParam.ru * ones(1, NUMCELLS);
     
     % A,B,C,D Matrices  ***
     % Multi SS model
@@ -137,8 +132,8 @@ try
     currMdl.T_dchrg = T_dchrg;
     currMdl.balWeight = 1; % Whether or not to use the balancing currents during optimization
     
-    %% Anode Potential (indirectly Lithium Plating) Lookup table (From "01_INR18650F1L_AnodeMapData.mat")
-    load(dataLocation + '01_INR18650F1L_AnodeMapData.mat'); % Lithium plating rate
+    %% Anode Potential (indirectly Lithium Plating) Lookup table (From "001_AnodeMapData_[Cell_PartNumber].mat")
+    load(dataLocation + "001_AnodeMapData_" + batteryParam.cellPN(battID)+ ".mat"); % Lithium plating rate
     anPotMdl.Curr = cRate_mesh * RATED_CAP;
     anPotMdl.SOC = soc_mesh;
     anPotMdl.ANPOT = mesh_anodeGap;
