@@ -76,17 +76,17 @@ end
 % If using a single cell or a parallel cell stack and the 
 % voltage measurement device is the Labjack U3-HV (LJ) for more accurate
 % measurements, the relay connect the battery to the LJ for measurement
-% TO DO: Move this to the "script_initializeVariable" script since it only
-% really needs to be called once
-if isempty(testData.time) && strcmpi(testSettings.voltMeasDev, "mcu") ...
-        && (strcmpi(cellConfig, 'series') || strcmpi(cellConfig, 'SerPar'))
-   % Activate relay to allow the LJ MCU to measure Voltage. 
-    % This is needed so that the MCU can measure a more accurate voltage. 
-    % Keep in mind though that the MCU cannot measure series voltage
-    % past 5V
-    LJ_MeasVolt = true; 
-    LJ_MeasVolt_Inverted = true; % The relay being used is inverted. I.e 0 means true and 1 means false
-    [ljudObj,ljhandle] = MCU_digitalWrite(ljudObj, ljhandle, LJ_MeasVoltPin, LJ_MeasVolt, LJ_MeasVolt_Inverted);
+if ~isempty(testData.time)
+    % We don't want this to constantly run. 
+    % Only run if the test has just started running and LJ is asked to
+    % measure voltage
+    if testData.time(end, 1) < 0.1 && LJ_MeasVolt == true 
+       % Activate relay to allow the LJ MCU to measure Voltage. 
+        % This is needed so that the MCU can measure a more accurate voltage. 
+        % Keep in mind though that the MCU cannot measure series voltage
+        % past 5V
+        [ljudObj,ljhandle] = MCU_digitalWrite(ljudObj, ljhandle, LJ_MeasVoltPin, LJ_MeasVolt, LJ_MeasVolt_Inverted);
+    end
 end
 
 % Each cell is made to equal that of the stack if it is parallel ot single
@@ -105,6 +105,9 @@ if ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMeasDe
     % Get cell measurements if available
     if strcmpi(cellConfig, 'series') || strcmpi(cellConfig, 'SerPar')
         % Implementation coming soon.
+    elseif strcmpi(cellConfig, 'parallel')
+    %TO DO: measure voltage for each batteries in parallel
+        testData.cellVolt(end+1, :) = testData.packVolt(end, :);
     else
         testData.cellVolt(end+1, :) = testData.packVolt(end, :); % Assign stack voltage to individual cell voltage
     end
@@ -124,7 +127,9 @@ elseif ismember("volt", testSettings.data2Record) && strcmpi(testSettings.voltMe
        % This is a VERY bad thing to do!!! 
        % Cells will most likely not be balanced at all times. 
        % Only leaving this here since the powerDevs cannot sense individual cell voltages
-       testData.cellVolt(end+1, :) = testData.packVolt(end, :) / numCells_Ser; 
+        testData.cellVolt(end+1, :) = testData.packVolt(end, :) / numCells_Ser; 
+        warning("Dividing pack voltage to get cell Voltage is dangerous (overcharge)." + newline ... 
+            + "Make sure cells are being balanced!!")
     else
         testData.cellVolt(end+1, :) = testData.packVolt(end, :); % Assign stack voltage to individual voltage
     end
@@ -167,10 +172,13 @@ if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDe
     if strcmpi(battState, "idle")
         testData.packCurr(end+1, :) = 0.0;
     end
-    % Get cell measurements if available
+    % Get cell measurements from Arduino if available
     if strcmpi(cellConfig, 'parallel') || strcmpi(cellConfig, 'SerPar')
-        % Temporary implementation for reading current from arduino
-        testData.cellCurr(end+1, :) = measureCurr_Ard(ard, 'channels', ardChnls);
+        if ~isempty(ard)
+            testData.cellCurr(end+1, :) = measureCurr_Ard(ard);
+        else
+            testData.cellCurr(end+1, :) = testData.packCurr(end, :)/numCells_Par; % Assign stack current to individual current
+        end
     else
         testData.cellCurr(end+1, :) = testData.packCurr(end, :); % Assign stack current to individual current
     end
@@ -179,15 +187,15 @@ if ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDe
 elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "powerDev")   
     % Get cell measurements if available
     if strcmpi(cellConfig, 'parallel') || strcmpi(cellConfig, 'SerPar')
-        % This Implementation is wrong since urrent won't be the same due
+        % This Implementation is wrong since current won't be the same due
         % to the battery's internal impedance
-        testData.cellCurr(end+1, :) = testData.packCurr(end, :)/numCells_Par; % Assign stack current to individual current
+%         testData.cellCurr(end+1, :) = testData.packCurr(end, :)/numCells_Par; % Assign stack current to individual current
+        testData.cellCurr(end+1, :) = measureCurr_Ard(ard);
     else
         testData.cellCurr(end+1, :) = testData.packCurr(end, :); % Assign stack current to individual current
     end
     
 elseif ismember("curr", testSettings.data2Record) && strcmpi(testSettings.currMeasDev, "balancer")
-    
     balCurr = bal.Currents(1, logical(bal.cellPresent(1, :)));
     testData.balCurr(end+1, :)       = balCurr'; % "measured" balance current
     % Combine currents for both active and passive balancing currents
@@ -230,17 +238,20 @@ if ismember("SOC", testSettings.data2Record)
         cellSOC = testData.cellSOC(end, :);
         packSOC = testData.packSOC(end, :);
     end
-    if (testData.packCurr(end, :) < 0), colEff = battProp.cellEta{battID}; else, colEff = 1; end
+    if (testData.packCurr(end, :) < 0), colEff = batteryParam.cellEta{battID}; else, colEff = 1; end
     
     if strcmpi(cellConfig, "series") || strcmpi(cellConfig, 'SerPar')
-        testData.cellSOC(end+1, :) = estimateSOC(testData.cellCurr(end, :).*colEff(:)',...
-            deltaT, cellSOC, (battProp.cellCap{battID}' * 3600)); % Capacity x 3600 = coulombs
+        testData.cellSOC(end+1, :) = estimateSOC(testData.packCurr(end, :).*colEff(:)',...
+            deltaT, cellSOC, (batteryParam.cellCap{battID}' * 3600)); % Capacity x 3600 = coulombs
         testData.packSOC(end+1, :) = mean(testData.cellSOC(end, :));
-       
+    elseif strcmpi(cellConfig, "parallel")
+        testData.cellSOC(end+1, :) = estimateSOC(testData.cellCurr(end, :).*colEff(:),...
+            deltaT, packSOC, batteryParam.capacity(battID)*3600); % Capacity x 3600 = coulombs
+        testData.packSOC(end+1, :) = sum(testData.cellSOC(end, :))/numCells_Par;
     else
-        testData.packSOC(end+1, :) = estimateSOC(testData.packCurr(end, :).*colEff(:)',...
-            deltaT, packSOC, battProp.capacity(battID)*3600); % Capacity x 3600 = coulombs
-        testData.cellSOC(end+1, :) = testData.packSOC(end, :);
+        testData.cellSOC(end+1, :) = estimateSOC(testData.packCurr(end, :).*colEff(:),...
+            deltaT, packSOC, batteryParam.capacity(battID)*3600); % Capacity x 3600 = coulombs
+        testData.packSOC(end+1, :) = sum(testData.cellSOC(end, :))/numCells_Par;
     end
     
 %     % Update Previous SOCs
@@ -292,11 +303,12 @@ else
             end
             
             Bstr = "";
-            for seriesInd = 1:numCells_Ser           
-                Bstr = Bstr + sprintf("Volt(" + seriesInd + ", :) = %.2fV\t\t", testData.cellVolt(end, seriesInd));
-                Bstr = Bstr + sprintf("Curr(" + seriesInd + ", :) = %.2fA\t\t", testData.cellCurr(end, seriesInd));
-                Bstr = Bstr + sprintf("SOC(" + seriesInd + ", :) = %.2f\t\t",    testData.cellSOC(end, seriesInd)*100);
-                Bstr = Bstr + sprintf("Ah(" + seriesInd + ", :) = %.3fAh\t\t",  testData.cellCap(end, seriesInd));
+            for cellPrintInd = 1:numCells_Ser           
+%                 Bstr = Bstr + sprintf("Volt(" + cellPrintInd + ", :) = %.2fV\t\t", testData.cellVolt(end, cellPrintInd));
+                Bstr = Bstr + sprintf("Volt(" + cellPrintInd + ", :) = %.2fV\t\t", testData.cellVolt(end, 1));
+                Bstr = Bstr + sprintf("Curr(" + cellPrintInd + ", :) = %.2fA\t\t", testData.cellCurr(end, cellPrintInd));
+                Bstr = Bstr + sprintf("SOC(" + cellPrintInd + ", :) = %.2f\t\t",    testData.cellSOC(end, cellPrintInd)*100);
+                Bstr = Bstr + sprintf("Ah(" + cellPrintInd + ", :) = %.3fAh\t\t",  testData.cellCap(end, cellPrintInd));
                 Bstr = Bstr + newline;
             end
             
@@ -318,11 +330,21 @@ else
         end
 
         Bstr = "";
-        for seriesInd = 1:numCells_Ser           
-            Bstr = Bstr + sprintf("Volt(" + seriesInd + ", :) = %.2fV\t\t", testData.cellVolt(end, seriesInd));
-            Bstr = Bstr + sprintf("Curr(" + seriesInd + ", :) = %.2fA\t\t", testData.cellCurr(end, seriesInd));
-            Bstr = Bstr + sprintf("SOC(" + seriesInd + ", :) = %.2f\t\t",    testData.cellSOC(end, seriesInd)*100);
-            Bstr = Bstr + sprintf("Ah(" + seriesInd + ", :) = %.3f Ah\t\t",  testData.cellCap(end, seriesInd));
+        if strcmpi(cellConfig, "series")
+            numCells_Print = numCells_Ser;
+        elseif strcmpi(cellConfig, "parallel")
+            numCells_Print = numCells_Par;
+        else
+            numCells_Print = 1;
+        end
+
+            
+        for cellPrintInd = 1:numCells_Print           
+%             Bstr = Bstr + sprintf("Volt(" + cellPrintInd + ", :) = %.2fV\t\t", testData.cellVolt(end, cellPrintInd));
+            Bstr = Bstr + sprintf("Volt(" + cellPrintInd + ", :) = %.2fV\t\t", testData.cellVolt(end, 1));
+            Bstr = Bstr + sprintf("Curr(" + cellPrintInd + ", :) = %.2fA\t\t", testData.cellCurr(end, cellPrintInd));
+            Bstr = Bstr + sprintf("SOC(" + cellPrintInd + ", :) = %.2f\t\t",    testData.cellSOC(end, cellPrintInd)*100);
+            Bstr = Bstr + sprintf("Ah(" + cellPrintInd + ", :) = %.3f Ah\t\t",  testData.cellCap(end, cellPrintInd));
             Bstr = Bstr + newline;
         end
 

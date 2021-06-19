@@ -1,4 +1,4 @@
-% True is off or in the normally open position
+% True is off or in the normally closed position
 % False is ON or normally open position
 if strcmpi(caller, "gui")
     if strcmpi(sysMCUArgs.devName, "LJMCU")

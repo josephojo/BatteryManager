@@ -11,6 +11,9 @@ setpref('Internet', 'SMTP_Password', 'n0tImportant%%$')
 
 sendmail('olaoluwa.ojo@ontariotechu.net', subject, ...
 'There has been an error! Check the experiment.');
+% sendmail('jonathan.couture@ontariotechu.net', subject, ...
+%     'There has been an error! Check the experiment.');
 
 disp("Email Notification Sent");
+% disp('Email notifications disabled');
 end

@@ -159,25 +159,27 @@ elseif strcmpi(caller, "cmdWindow")
     %% Command Window
     % When called by the command window, the connection settings will need to be determined on its own
     
-%     Arduino
+%     Arduino (Current Sensor)
 %     ##########################################################################
-    ardPort = 'COM4';
-    ard = arduino(ardPort, 'Nano');
-    
-%     ardSerial = instrfind('Port', ardPort, 'Status', 'open');
-%     if isempty(ardSerial)
-%         ard = serial(ardPort);
-%         ard.BaudRate = 115200;
-%         ard.DataBits = 8;
-%         ard.Parity = 'none';
-%         ard.StopBits = 1;
-%         ard.Terminator = 'LF';
-%         fopen(ard);
-%     elseif ~exist('ard','var')
-%         ard = ardSerial;
-    end
-    wait(2);
-    -------------------------------------------------------------------------
+%     ardPort = 'COM10';
+%     ard = arduino(ardPort, 'Uno'); %Connection to the arduino board
+
+% % Get the 0A voltage from the current sensor connected to the LabJack.
+% % This section will give errors if script_initializeVariables isn't run
+% % before this script
+% cSigP = 0;
+% cSigN = 0;
+% n = 10;
+% script_initializeVariables;
+% for i = 1:n
+%     script_avgLJMeas; % Gets the zero values of the sensor. % If Error occurs here, it's because script_initializeVariables wasn't before script_initializeDevices
+%     cSigP = (ain0 / adcAvgCount) + cSigP;
+%     cSigN = (ain1 / adcAvgCount) + cSigN;
+% end
+% cSigMid = (cSigP/n) - (cSigN/n);
+% script_initializeVariables;
+
+%     -------------------------------------------------------------------------
     
     %ARRAY ELOAD
     %##########################################################################
@@ -253,22 +255,6 @@ elseif strcmpi(caller, "cmdWindow")
         wait(2); % Wait for the EEprom Data to be updated
     end
     %--------------------------------------------------------------------------
-    
-    
-    % % Get the 0A voltage from the current sensor connected to the LabJack.
-    % % This section will give errors if script_initializeVariables isn't run
-    % % before this script
-    % cSigP = 0;
-    % cSigN = 0;
-    % n = 10;
-    % script_initializeVariables;
-    % for i = 1:n
-    %     script_avgLJMeas; % Gets the zero values of the sensor. % If Error occurs here, it's because script_initializeVariables wasn't before script_initializeDevices
-    %     cSigP = (ain0 / adcAvgCount) + cSigP;
-    %     cSigN = (ain1 / adcAvgCount) + cSigN;
-    % end
-    % cSigMid = (cSigP/n) - (cSigN/n);
-    % script_initializeVariables;
     
 end
 

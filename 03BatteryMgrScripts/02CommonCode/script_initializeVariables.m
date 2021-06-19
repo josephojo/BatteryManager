@@ -16,9 +16,10 @@ else
     % Seperates the path directory and the filename
     [path, filename, ~] = fileparts(currFilePath);
     
-    newStr = extractBefore(path, "03BatteryMgrScripts");
+%     newStr = extractBefore(path, "03BatteryMgrScripts");
+    newStr = 'C:\Users\Linlab\Documents\GitHub\BatteryManager';
 
-    dataLocation = newStr + "01CommonDataForBattery\";
+    dataLocation = newStr + "\01CommonDataForBattery\";
     testSettings.dataLocation = dataLocation;
 
     %{
@@ -48,24 +49,9 @@ if strcmpi(caller, "cmdWindow") && ~isfield(testSettings, "tempMeasDev")
     testSettings.tempMeasDev = "Mod16Ch";
 end
 
-%% Configure Relay pins on the LAbJack MCU
-if caller == "gui"
-    LJ_powerDev_RelayPins = sysMCUArgs.relayPins;
-    
-    % Pin to activate relay to allow the LJ MCU to measure Voltage. 
-    % This is needed so that the MCU can measure a more accurate voltage. 
-    % Keep in mind though that the MCU cannot measure series voltage
-    % past 5V
-    LJ_MeasVoltPin = 7; %#TODO Need to create a field for this in sysMCUArgs
-else
-    LJ_powerDev_RelayPins = [5, 6]; % Power Device Switching pins
-    
-    % Pin to activate relay to allow the LJ MCU to measure Voltage. 
-    % This is needed so that the MCU can measure a more accurate voltage. 
-    % Keep in mind though that the MCU cannot measure series voltage
-    % past 5V
-    LJ_MeasVoltPin = 7;
-end
+%% Define Pins numbers in use on the LabJack MCU
+script_defineLJPinNums;
+
 
 %% Battery Connection Info
 
@@ -83,7 +69,9 @@ if ~exist("battID", 'var') || isempty(battID)
 end
 
 %Load Battery Parameters
+% load(newStr + "007BatteryParam.mat", 'batteryParam');
 load(dataLocation + "007BatteryParam.mat", 'batteryParam');
+
 
 % Battery Configuration
 stackConfig = batteryParam.stackConfig(battID);
@@ -195,6 +183,20 @@ else
             testSettings.allowable_VoltDev = 0.0; % voltage deviation before for balancing is allowed to stop
         end
     end
+end
+
+%% Check if the LJMCU is to measure voltage
+% If using a single cell or a parallel cell stack and the 
+% voltage measurement device is the Labjack U3-HV (LJ) for more accurate
+% measurements, the relay connect the battery to the LJ for measurement
+if strcmpi(testSettings.voltMeasDev, "mcu") ...
+        && ~(strcmpi(cellConfig, 'series') || strcmpi(cellConfig, 'SerPar'))
+   % Activate relay to allow the LJ MCU to measure Voltage. 
+    % This is needed so that the MCU can measure a more accurate voltage. 
+    % Keep in mind though that the MCU cannot measure series voltage
+    % past 5V
+    LJ_MeasVolt = true; 
+    LJ_MeasVolt_Inverted = true; % The relay being used is inverted. I.e 0 means true and 1 means false
 end
 
 %% TC Info

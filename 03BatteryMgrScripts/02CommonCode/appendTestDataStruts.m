@@ -6,9 +6,10 @@ function [newStruct, mergeSuccess] = appendTestDataStruts(OldStruct, Struct2Merg
 
 newStruct = OldStruct;
 
-if isequal(fieldnames(OldStruct), fieldnames(Struct2Merge)) ...
+if isequal(fieldnames(OldStruct), fieldnames(Struct2Merge))
         %         && length(oldstruct.cellVolt(1, :)) == length(Struct2merge.cellVolt(1, :))
-    Struct2Merge.time = Struct2Merge.time + OldStruct.time(end);
+    % Struct2Merge.time = Struct2Merge.time + OldStruct.time(end);
+        % Operator '+' is not supported for operands of type 'struct'
     fieldNames = fieldnames(OldStruct);
     for i = 1:length(fieldNames)
         newStruct.(fieldNames{i}) = [OldStruct.(fieldNames{i}); Struct2Merge.(fieldNames{i})];

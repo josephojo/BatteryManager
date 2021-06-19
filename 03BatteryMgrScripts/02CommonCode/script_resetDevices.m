@@ -5,7 +5,7 @@
 %     end
 % end
 
-try
+% try
 
 % if caller == "gui"
 %% Caller == GUI
@@ -92,7 +92,7 @@ if exist('eload','var')
     end
 end
 
-
+%% LJ MCU
 if exist('ljasm','var')
     relayState = false;
     if (isempty(ljasm) == 0)
@@ -105,6 +105,7 @@ if exist('ljasm','var')
         clear('ljudObj', 'ljasm');
     end
 end
+%%
 
 if exist('bal','var')
     if isvalid(bal) && strcmpi(bal.serialStatus, 'Connected')
@@ -117,18 +118,23 @@ if exist('thermo','var')
     clear ('thermo');
 end
 
+if exist('ard','var')
+    clear ('ard');
+end
+
 msg = "Devices Reset" + newline;
-if strcmpi(caller, "gui")
-    send(randQ, msg);
-else
-    disp(msg);
-    disp("Test Ended on " + string(datetime('now')))
-end
-catch ME
-    if strcmpi(caller, "gui")
-        send(errorQ, ME);
-    else
-        rethrow(ME);
-    end
-end
+% % % if strcmpi(caller, "gui")
+% % %     send(randQ, msg);
+% % % else
+% % %     disp(msg);
+% % %     disp("Test Ended on " + string(datetime('now')))
+% % % end
+
+% catch ME
+%     if strcmpi(caller, "gui")
+%         send(errorQ, ME);
+%     else
+%         rethrow(ME);
+%     end
+% end
 % end
