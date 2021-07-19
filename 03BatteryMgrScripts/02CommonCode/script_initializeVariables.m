@@ -16,8 +16,7 @@ else
     % Seperates the path directory and the filename
     [path, filename, ~] = fileparts(currFilePath);
     
-%     newStr = extractBefore(path, "03BatteryMgrScripts");
-    newStr = 'C:\Users\Linlab\Documents\GitHub\BatteryManager';
+    newStr = extractBefore(path, "03BatteryMgrScripts");
 
     dataLocation = newStr + "\01CommonDataForBattery\";
     testSettings.dataLocation = dataLocation;
@@ -67,6 +66,9 @@ if ~exist("battID", 'var') || isempty(battID)
     battID_In = upper(inputdlg(prompt,dlgtitle,dims,definput));
     battID = string(battID_In{1});
 end
+% Make sure battery ID String is in uppercase
+battID = upper(battID);
+
 
 %Load Battery Parameters
 % load(newStr + "007BatteryParam.mat", 'batteryParam');
@@ -197,6 +199,8 @@ if strcmpi(testSettings.voltMeasDev, "mcu") ...
     % past 5V
     LJ_MeasVolt = true; 
     LJ_MeasVolt_Inverted = true; % The relay being used is inverted. I.e 0 means true and 1 means false
+else
+    LJ_MeasVolt = false; 
 end
 
 %% TC Info
@@ -215,8 +219,12 @@ else
             tempVal = str2double(strsplit(answer{1},','));
             tempChnls = tempVal(~isnan(tempVal));
             disp("You have entered the following channels : " + strjoin(string(tempChnls), ', '))
+        else
+            script_resetDevices;
+            error("Cannot move on without assigning thermocouple channels");
         end
     end
+    
     
     
 end

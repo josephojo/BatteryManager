@@ -1,16 +1,16 @@
-function [testData, metadata, testSettings] = dischargeToSOC(targSOC, dischargeCurr, varargin)
+function [testData, metadata, testSettings] = dischargeToSOC(targSOC, dischargeCurr, battID, varargin)
 %dischargeToSOC Discharges to the specified SOC based on the current provided
 %
 %   Inputs: 
 %       targSOC             : Target SOC (0 to 1) to charge to
 %      	chargeCurr          : Current (A) to discharge
+%		battID              = [],     		: IDs of Cells being tested. If parallel specify all cells in string array
 %       varargin   
 %			trig1         	= false,  		: Accepts a Command to use the trigger activate something such as a heat pad
 %			trig1_pin     	= 4,      		: Specifies what pin on the MCU to use(Initially used on a LABJack U3-HV)
 %			trig1_startTime	= [10.0], 		: How long into the parent function to trigger. Can be an array of times (s)
 %			trig1_duration	= [2.0],  		: How long should the trigger last
 %											
-%			battID       	= [],     		: IDs of Cells being tested. If parallel specify all cells in string array
 %			caller      	= "cmdWindow", 	: Specifies who the parent caller is. The GUI or MatLab's cmd window. Implementations between both can be different
 %			psuArgs       	= [],     		: Connection details of the power supply
 %			eloadArgs     	= [],     		: Connection details of the Electronic Load
@@ -40,7 +40,6 @@ param = struct(...
     'trig1_startTime',  [10.0], ... %           "
     'trig1_duration',   [2.0],  ... %           "
                     ...             %           "
-    'battID',           [],     ... %           "
     'caller',      "cmdWindow", ... %           "
     'psuArgs',          [],     ... %           "
     'eloadArgs',        [],     ... %           "
@@ -80,7 +79,6 @@ param = struct(...
 
 % ---------------------------------
 
-battID = param.battID;
 caller = param.caller;
 psuArgs = param.psuArgs;
 eloadArgs = param.eloadArgs;
@@ -150,7 +148,7 @@ try
     
     script_queryData; % Run Script to query data from devices
     script_failSafes; %Run FailSafe Checks
-    if errorCode == 1 || strcmpi(testStatus, "stop")
+    if strcmpi(testStatus, "stop")
         script_idle;
         script_resetDevices;
         return;
@@ -160,7 +158,7 @@ try
     if targSOC == 0        
         trackSOCFS = false; % Don't complain/warn the user if the SOC goes below 0 since we're tracking voltage
         % While packVolt is greater than low limit
-        while round(testData.packVolt(end, :), 1) > lowVoltLimit
+        while round(testData.packVolt(end, :), 3) > lowVoltLimit
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -183,7 +181,7 @@ try
 
     else
         % While SOC is greater than specified
-        while round(testData.packSOC(end, :), 1) > targSOC
+        while round(testData.packSOC(end, :), 3) > targSOC
             %% Measurements
             % Querys all measurements every readPeriod second(s)
             if toc(testTimer) - timerPrev(3) >= readPeriod
@@ -193,7 +191,7 @@ try
                 script_failSafes; %Run FailSafe Checks
                 script_checkGUICmd; % Check to see if there are any commands from GUI
                 % if limits are reached, break loop
-                if errorCode == 1 || strcmpi(testStatus, "stop")
+                if strcmpi(testStatus, "stop")
                     script_idle;
                     break;
                 end

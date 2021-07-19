@@ -1,6 +1,6 @@
 try
     %% Voltage Model 
-    load(dataLocation + "001ECTM_" + batteryParam.cellPN(battID) + ".mat", ...
+    load(dataLocation + "001_ECTM_" + batteryParam.cellPN(battID) + ".mat", ...
         'OCV', 'SOC', 'voltMdlParam', 'tempMdlParam'); 
 
     C1 = voltMdlParam.C1 * ones(1, NUMCELLS);

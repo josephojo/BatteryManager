@@ -330,7 +330,9 @@ else
         end
 
         Bstr = "";
-        if strcmpi(cellConfig, "series")
+        % Depending on the configuration, this decides how many individual
+        % cell data to print out
+        if strcmpi(cellConfig, "series") || strcmpi(cellConfig, "SerPar")
             numCells_Print = numCells_Ser;
         elseif strcmpi(cellConfig, "parallel")
             numCells_Print = numCells_Par;
@@ -341,7 +343,7 @@ else
             
         for cellPrintInd = 1:numCells_Print           
 %             Bstr = Bstr + sprintf("Volt(" + cellPrintInd + ", :) = %.2fV\t\t", testData.cellVolt(end, cellPrintInd));
-            Bstr = Bstr + sprintf("Volt(" + cellPrintInd + ", :) = %.2fV\t\t", testData.cellVolt(end, 1));
+            Bstr = Bstr + sprintf("Volt(" + cellPrintInd + ", :) = %.2fV\t\t", testData.cellVolt(end, cellPrintInd));
             Bstr = Bstr + sprintf("Curr(" + cellPrintInd + ", :) = %.2fA\t\t", testData.cellCurr(end, cellPrintInd));
             Bstr = Bstr + sprintf("SOC(" + cellPrintInd + ", :) = %.2f\t\t",    testData.cellSOC(end, cellPrintInd)*100);
             Bstr = Bstr + sprintf("Ah(" + cellPrintInd + ", :) = %.3f Ah\t\t",  testData.cellCap(end, cellPrintInd));

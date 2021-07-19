@@ -1,3 +1,113 @@
+function [testData, metadata, testSettings] = P06_SeriesPack_FC_HW(targSOC, chargeCurr, battID, varargin)
+%chargeToSOC Charges to the specified SOC based on the charge current
+%specified
+%
+%   Inputs: 
+%       targSOC             : Target SOC to charge for
+%      	chargeCurr          : Current (A) to charge
+%       battID       		: ID of Cell/Pack being tested.
+%       varargin   
+%			trig1         	= false,  		: Accepts a Command to use the trigger activate something such as a heat pad
+%			trig1_pin     	= 4,      		: Specifies what pin on the MCU to use(Initially used on a LABJack U3-HV)
+%			trig1_startTime	= [10.0], 		: How long into the parent function to trigger. Can be an array of times (s)
+%			trig1_duration	= [2.0],  		: How long should the trigger last
+%											
+%			caller      	= "cmdWindow", 	: Specifies who the parent caller is. The GUI or MatLab's cmd window. Implementations between both can be different
+%			psuArgs       	= [],     		: Connection details of the power supply
+%			eloadArgs     	= [],     		: Connection details of the Electronic Load
+%			tempModArgs    	= [],     		: Connection details of the Temperature measuring module
+%			sysMCUArgs     	= [],     		: Connection details of the Data Acquisition System. (Switches Relays and obtaines measurements)
+%			saveArgs     	= [],     		: Arguments from the GUI used to save Data results
+%			stackArgs     	= [],     		: Arguments from the GUI about the cells to be tested
+%			dataQ         	= [],     		: Pollable DataQueue for real-time data transfer between 
+%                                               2 parallel-run programs such as the function and GUI
+%			errorQ        	= [],     		: Pollable DataQueue for real-time error data (exceptions) 
+%                                               transfer between 2 parallel-run programs such as the function and GUI
+%			randQ        	= [],     		: Pollable DataQueue for miscellaneous data (e.g confirmations etc) 
+%                                               transfer between 2 parallel-run programs such as the function and GUI
+%			testSettings  	= [];    		: Settings for the test such as cell configuration, sample time, data to capture etc
+%
+%   Outputs:
+%       testData            : Struct of Test Data
+%       metadata            : Test MetaData such as starttime, Tested Batt etc
+%       testSettings        : Device, data measurement, and other settings
+%                               to allow the functioning of the test
+
+%% Parse Input Argument or set Defaults
+
+param = struct(...
+    'trig1',            false,  ... % General to most functions
+    'trig1_pin',        4,      ... %           "
+    'trig1_startTime',  [10.0], ... %           "
+    'trig1_duration',   [2.0],  ... %           "
+                    ...             %           "
+    'caller',      "cmdWindow", ... %           "
+    'psuArgs',          [],     ... %           "
+    'eloadArgs',        [],     ... %           "
+    'tempModArgs',      [],     ... %           "
+    'balArgs',          [],     ... %           "
+    'sysMCUArgs',       [],     ... %           "
+    'saveArgs',         [],     ... %           "
+    'stackArgs',        [],     ... %           "
+    'dataQ',            [],     ... %           "
+    'errorQ',           [],     ... %           "
+    'randQ',            [],     ... %           "
+    'testSettings',     struct...
+                        ("cellConfig", "SerPar",...
+                        "currMeasDev", "balancer",...
+                        "tempChnls", [9, 10, 11, 12, 13]), ... %           " 
+    'eventLog',         []);        % -------------------------
+
+%% Evaluate Optional Parameters
+% read the acceptable names
+paramNames = fieldnames(param);
+
+% Ensure variable entries are pairs
+nArgs = length(varargin);
+if round(nArgs/2)~=nArgs/2
+    error('runProfile needs propertyName/propertyValue pairs')
+end
+
+for pair = reshape(varargin,2,[]) %# pair is {propName;propValue}
+    inpName = pair{1}; %# make case insensitive
+    
+    if any(strcmpi(inpName,paramNames))
+        %# overwrite options. If you want you can test for the right class here
+        %# Also, if you find out that there is an option you keep getting wrong,
+        %# you can use "if strcmp(inpName,'problemOption'),testMore,end"-statements
+        param.(inpName) = pair{2};
+    else
+        error('%s is not a recognized parameter name',inpName)
+    end
+end
+
+% ---------------------------------
+
+caller = param.caller;
+psuArgs = param.psuArgs;
+eloadArgs = param.eloadArgs;
+tempModArgs = param.tempModArgs;
+balArgs = param.balArgs;
+sysMCUArgs = param.sysMCUArgs;
+stackArgs = param.stackArgs;
+dataQ = param.dataQ;
+errorQ = param.errorQ;
+randQ = param.randQ;
+testSettings = param.testSettings;
+eventLog = param.eventLog;
+
+
+% If battID is not provided or is an empty string, make user provide it via
+% a dialog box
+if battID == "" || nargin < 3
+    answer = inputdlg("Enter Battery ID. Case Insensitive.",'Battery ID not provided',[1 55],{'AE0'});
+    if isempty(answer)
+        return;
+    else
+        battID = string(answer{1});
+    end
+end
+battID = upper(battID);
 
 %% Series-Pack Fast Charging
 % By Joseph Ojo
@@ -17,50 +127,26 @@
 
 % clearvars -except bal eventLog; clc
 
+
 %% Initialize Variables and Devices
 try
-    if ~exist('battID', 'var') || isempty(battID)
-        battID = ["AD0"]; % ID in Cell Part Number (e.g BAT11-FEP-AA1). Defined again in initializeVariables
-    end
-    
-    if ~exist('caller', 'var')
-        caller = "cmdWindow";
-    end
-    
-    if ~exist('psuArgs', 'var')
-        psuArgs = [];
-        eloadArgs = [];
-        tempModArgs = [];
-        balArgs = [];
-        sysMCUArgs = [];
-        stackArgs = [];
-    end
-    
-    if ~exist('testSettings', 'var') || isempty(testSettings)
-        codeFilePath = mfilename('fullpath');
-        % Seperates the path directory and the filename
-        [codePath, codeFileName, ~] = fileparts(codeFilePath);
-        
-%         str = extractBetween(codePath,"",...
-%             "00BattManager","Boundaries","inclusive");
-        str = extractBefore(codePath, "03BatteryMgrScripts");
-        testSettings.saveDir = str + "00ProjectData\" + extractBefore(codeFileName, 4) + "\";
-        
-        testSettings.cellConfig = "SerPar";
-        testSettings.currMeasDev = "balancer";
-        
-        testSettings.saveName   = "00SP_HCFC_" + battID;
-        testSettings.purpose    = "Test for the series stack health conscious charging algorithm";
-        testSettings.tempChnls  = [9, 10, 11, 12, 13];
-        testSettings.trigPins = []; % Find in every pin that should be triggered
-        testSettings.trigInvert = []; % Fill in 1 for every pin that is reverse polarity (needs a zero to turn on)
-        testSettings.trigStartTimes = {[100]}; % cell array of vectors. each vector corresponds to each the start times for each pin
-        testSettings.trigDurations = {15}; % cell array of vectors. each vector corresponds to each the duration for each pin's trigger
-    end
+    codeFilePath = mfilename('fullpath');
+    % Seperates the path directory and the filename
+    [codePath, codeFileName, ~] = fileparts(codeFilePath);
+
+    str = extractBefore(codePath, "03BatteryMgrScripts");
+    testSettings.saveDir = str + "00ProjectData\" + extractBefore(codeFileName, 4) + "\";
+
+    testSettings.saveName   = "00SP_HCFC_" + battID;
+    testSettings.purpose    = "Test for the series stack health conscious charging algorithm";
+    testSettings.trigPins = []; % Find in every pin that should be triggered
+    testSettings.trigInvert = []; % Fill in 1 for every pin that is reverse polarity (needs a zero to turn on)
+    testSettings.trigStartTimes = {[100]}; % cell array of vectors. each vector corresponds to each the start times for each pin
+    testSettings.trigDurations = {15}; % cell array of vectors. each vector corresponds to each the duration for each pin's trigger
     
     script_initializeVariables; % Run Script to initialize common variables
 
-    if ~exist('eventLog', 'var') || isempty(eventLog) || ~isvalid(eventLog)
+    if isempty(eventLog) || ~isvalid(eventLog) % ~exist('eventLog', 'var') || 
         eventLog = EventLogger();
     end
     
@@ -87,6 +173,11 @@ end
 P06_Constants;
 ANPOT_Target = -inf;  % Anode Potential has to be greater than 0 to ensure no lithium deposition
 ANPOT_Target_BAL = -inf; % 0.05; % Anode Potential has to be greater than 0 to ensure no lithium deposition
+
+% Function inputs
+TARGET_SOC = targSOC;
+testSettings.TARGET_SOC = TARGET_SOC;
+MIN_CELL_CURR = -abs(chargeCurr); % Negative current means charging
 
 ExpName = "FC_Main";
 
@@ -427,3 +518,4 @@ catch ME
     script_handleException;
 end
 
+end
